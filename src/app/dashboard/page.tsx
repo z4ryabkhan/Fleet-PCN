@@ -49,10 +49,18 @@ export default async function DashboardPage() {
           )}
         </div>
 
+        <a
+          href="/dashboard/vehicles"
+          className="mt-8 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
+        >
+          <p className="text-lg font-medium">Vehicles &rarr;</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            {organisation ? "Verify your fleet and add vehicles." : "Add a vehicle and verify ownership."}
+          </p>
+        </a>
+
         <p className="mt-8 text-sm text-zinc-500">
-          Vehicles, ownership verification, and case tracking land in the next phase. This
-          dashboard is currently just proof that sign-up, email confirmation, and the
-          individual/fleet account split are wired end-to-end.
+          Case tracking and appeal drafting land in the next phase.
         </p>
       </div>
     </main>
