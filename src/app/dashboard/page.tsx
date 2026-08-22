@@ -69,6 +69,16 @@ export default async function DashboardPage() {
             Upload a ticket, get an AI appeal assessment, and track deadlines.
           </p>
         </Link>
+
+        <Link
+          href="/dashboard/email"
+          className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
+        >
+          <p className="text-lg font-medium">Connected email &rarr;</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Connect your inbox so Planal can catch PCN emails automatically.
+          </p>
+        </Link>
       </div>
     </main>
   );
