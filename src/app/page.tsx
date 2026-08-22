@@ -123,9 +123,12 @@ export default function Home() {
             Planal never submits an appeal on your behalf without your explicit confirmation, and
             never claims to find a ticket you haven&apos;t already been notified about.
           </p>
-          <p className="mt-2">
+          <p className="mt-2 space-x-4">
             <a href="/privacy" className="underline hover:text-zinc-300">
-              Privacy notice
+              Privacy policy
+            </a>
+            <a href="/terms" className="underline hover:text-zinc-300">
+              Terms of Service
             </a>
           </p>
         </div>
