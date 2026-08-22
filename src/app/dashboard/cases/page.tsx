@@ -80,15 +80,40 @@ export default async function CasesPage() {
                 </thead>
                 <tbody>
                   {cases.map((c) => (
-                    <tr key={c.id} className="border-b border-white/5 last:border-0">
-                      <td className="px-4 py-3 font-medium">{c.vehicles?.vrm ?? "—"}</td>
-                      <td className="px-4 py-3 text-zinc-300">{c.issuer_name ?? "—"}</td>
-                      <td className="px-4 py-3 text-zinc-300">{c.reference_number ?? "—"}</td>
-                      <td className="px-4 py-3 text-zinc-300">
-                        {c.amount_full != null ? `£${c.amount_full}` : "—"}
+                    <tr
+                      key={c.id}
+                      className="border-b border-white/5 last:border-0 hover:bg-white/5"
+                    >
+                      <td className="px-4 py-3 font-medium">
+                        <a href={`/dashboard/cases/${c.id}`} className="block">
+                          {c.vehicles?.vrm ?? "—"}
+                        </a>
                       </td>
-                      <td className="px-4 py-3 text-zinc-300">{c.final_deadline ?? "—"}</td>
-                      <td className="px-4 py-3 capitalize text-zinc-300">{c.status}</td>
+                      <td className="px-4 py-3 text-zinc-300">
+                        <a href={`/dashboard/cases/${c.id}`} className="block">
+                          {c.issuer_name ?? "—"}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-300">
+                        <a href={`/dashboard/cases/${c.id}`} className="block">
+                          {c.reference_number ?? "—"}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-300">
+                        <a href={`/dashboard/cases/${c.id}`} className="block">
+                          {c.amount_full != null ? `£${c.amount_full}` : "—"}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-300">
+                        <a href={`/dashboard/cases/${c.id}`} className="block">
+                          {c.final_deadline ?? "—"}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 capitalize text-zinc-300">
+                        <a href={`/dashboard/cases/${c.id}`} className="block">
+                          {c.status}
+                        </a>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

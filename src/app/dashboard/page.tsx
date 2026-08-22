@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
 import { signOutAction } from "./actions";
@@ -49,7 +50,7 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        <a
+        <Link
           href="/dashboard/vehicles"
           className="mt-8 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
         >
@@ -57,17 +58,17 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-zinc-400">
             {organisation ? "Verify your fleet and add vehicles." : "Add a vehicle and verify ownership."}
           </p>
-        </a>
+        </Link>
 
-        <a
+        <Link
           href="/dashboard/cases"
           className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
         >
           <p className="text-lg font-medium">Cases &rarr;</p>
-          <p className="mt-1 text-sm text-zinc-400">Upload a ticket and track your cases.</p>
-        </a>
-
-        <p className="mt-8 text-sm text-zinc-500">Appeal drafting lands in a later phase.</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Upload a ticket, get an AI appeal assessment, and track deadlines.
+          </p>
+        </Link>
       </div>
     </main>
   );
