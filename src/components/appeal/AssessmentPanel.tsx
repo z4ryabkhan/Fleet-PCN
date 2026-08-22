@@ -6,6 +6,7 @@ import {
   saveDraftEditAction,
   confirmAppealAction,
   setOutcomeAction,
+  startIndividualCasePaymentAction,
   type CaseDetailActionState,
 } from "@/app/dashboard/cases/[caseId]/actions";
 import { groundLabel, type AppealGround } from "@/lib/appeal";
@@ -32,13 +33,21 @@ export function AssessmentPanel({
   caseId,
   appeal,
   disclaimer,
+  requiresPayment,
+  isPaid,
 }: {
   caseId: string;
   appeal: Appeal | null;
   disclaimer: string;
+  requiresPayment: boolean;
+  isPaid: boolean;
 }) {
   const [assessState, assessAction, assessPending] = useActionState(
     requestAssessmentAction,
+    initialState
+  );
+  const [payState, payAction, payPending] = useActionState(
+    startIndividualCasePaymentAction,
     initialState
   );
   const [draftState, draftAction, draftPending] = useActionState(saveDraftEditAction, initialState);
@@ -53,6 +62,32 @@ export function AssessmentPanel({
   const [confirmChecked, setConfirmChecked] = useState(false);
 
   if (!appeal || !appeal.ai_strength_rating) {
+    if (requiresPayment && !isPaid) {
+      return (
+        <div className="rounded-xl border border-white/10 p-6">
+          <h2 className="text-lg font-medium">Appeal assessment</h2>
+          <p className="mt-2 text-sm text-zinc-400">
+            Pay £9.99 to unlock an AI assessment of appeal strength and a draft you can review,
+            edit, and submit yourself. Free monitoring stays free — this only applies when you
+            want the AI assessment.
+          </p>
+          <form action={payAction} className="mt-4">
+            <input type="hidden" name="caseId" value={caseId} />
+            {payState && "error" in payState && (
+              <p className="mb-3 text-sm text-red-400">{payState.error}</p>
+            )}
+            <button
+              type="submit"
+              disabled={payPending}
+              className="rounded-md bg-emerald-500 px-4 py-2.5 font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {payPending ? "Redirecting..." : "Pay £9.99 to unlock"}
+            </button>
+          </form>
+        </div>
+      );
+    }
+
     return (
       <div className="rounded-xl border border-white/10 p-6">
         <h2 className="text-lg font-medium">Appeal assessment</h2>

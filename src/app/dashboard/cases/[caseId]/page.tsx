@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureAccountProvisioned } from "@/lib/account";
 import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
@@ -9,15 +10,20 @@ export const metadata = { title: "Case — Planal" };
 
 export default async function CaseDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ caseId: string }>;
+  searchParams: Promise<{ paid?: string }>;
 }) {
   const { caseId } = await params;
+  const { paid } = await searchParams;
   const supabase = await getSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
 
   const { data: caseRow } = await supabase
     .from("cases")
@@ -31,7 +37,7 @@ export default async function CaseDetailPage({
 
   const vehicle = caseRow.vehicles as unknown as { vrm: string } | null;
 
-  const [{ data: evidence }, { data: appeal }] = await Promise.all([
+  const [{ data: evidence }, { data: appeal }, { data: paidCharge }] = await Promise.all([
     supabase
       .from("evidence")
       .select("id, evidence_type, file_ref, uploaded_at")
@@ -44,6 +50,15 @@ export default async function CaseDetailPage({
       )
       .eq("case_id", caseId)
       .maybeSingle(),
+    organisation
+      ? Promise.resolve({ data: null })
+      : supabase
+          .from("case_charges")
+          .select("id")
+          .eq("case_id", caseId)
+          .eq("charge_type", "individual_per_case")
+          .eq("status", "paid")
+          .maybeSingle(),
   ]);
 
   return (
@@ -97,11 +112,19 @@ export default async function CaseDetailPage({
           </div>
         </div>
 
+        {paid === "0" && (
+          <p className="mt-4 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-zinc-300">
+            Checkout cancelled — no charge was made.
+          </p>
+        )}
+
         <div className="mt-8">
           <AssessmentPanel
             caseId={caseId}
             appeal={appeal}
             disclaimer={mandatoryDisclaimer(appeal?.ai_strength_rating ?? "weak", caseRow.issuer_type)}
+            requiresPayment={!organisation}
+            isPaid={Boolean(paidCharge)}
           />
         </div>
 

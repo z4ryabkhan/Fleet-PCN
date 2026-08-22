@@ -1,8 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { ensureAccountProvisioned } from "@/lib/account";
 import { assessAppeal } from "@/lib/appeal";
+import {
+  getOrCreateBillingAccount,
+  createIndividualCaseCheckoutSession,
+  addFleetPerCaseCharge,
+} from "@/lib/billing";
+import { PRICE_INDIVIDUAL_PER_CASE, getStripeClient } from "@/lib/stripe";
 
 export type CaseDetailActionState = { error: string } | { success: string } | undefined;
 
@@ -34,6 +43,8 @@ async function loadCaseContext(
   };
 }
 
+// Individuals pay per case to unlock this (Part 2.2 step 5/6); fleets pay
+// recurring and are never blocked here — see addFleetPerCaseCharge's doc.
 export async function requestAssessmentAction(
   _prevState: CaseDetailActionState,
   formData: FormData
@@ -47,6 +58,22 @@ export async function requestAssessmentAction(
   const caseId = String(formData.get("caseId") || "");
   const ctx = await loadCaseContext(supabase, caseId);
   if (!ctx) return { error: "Case not found." };
+
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
+
+  if (!organisation) {
+    const { data: paidCharge } = await supabase
+      .from("case_charges")
+      .select("id")
+      .eq("case_id", caseId)
+      .eq("charge_type", "individual_per_case")
+      .eq("status", "paid")
+      .maybeSingle();
+
+    if (!paidCharge) {
+      return { error: "This case needs to be paid for before it can be assessed." };
+    }
+  }
 
   const assessment = await assessAppeal({
     issuerType: ctx.caseRow.issuer_type,
@@ -80,8 +107,67 @@ export async function requestAssessmentAction(
 
   await supabase.from("cases").update({ status: "appealing" }).eq("id", caseId);
 
+  if (organisation) {
+    const admin = getSupabaseAdminClient();
+    await addFleetPerCaseCharge(admin, organisation.id, caseId);
+  }
+
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: "Assessment complete — review the draft below." };
+}
+
+// Individuals only — creates a pending case_charges row and redirects to
+// Stripe Checkout. The webhook (or, as a fallback, the success-page
+// verification below) is what actually flips it to 'paid'; this action
+// never marks a charge paid itself.
+export async function startIndividualCasePaymentAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+
+  if (!getStripeClient() || !PRICE_INDIVIDUAL_PER_CASE) {
+    return { error: "Payments aren't set up yet — the Stripe API key hasn't been configured." };
+  }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("email, full_name")
+    .eq("id", user.id)
+    .single();
+
+  const admin = getSupabaseAdminClient();
+  const account = await getOrCreateBillingAccount(admin, {
+    ownerType: "individual",
+    ownerId: user.id,
+    email: profile?.email ?? user.email ?? "",
+    name: profile?.full_name ?? "",
+  });
+
+  if (!account) {
+    return { error: "Could not set up billing. Please try again." };
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const url = await createIndividualCaseCheckoutSession(
+    admin,
+    account.stripeCustomerId,
+    caseId,
+    `${appUrl}/api/billing/confirm-case-payment?case_id=${caseId}&session_id={CHECKOUT_SESSION_ID}`,
+    `${appUrl}/dashboard/cases/${caseId}?paid=0`
+  );
+
+  if (!url) {
+    return { error: "Could not start checkout. Please try again." };
+  }
+
+  redirect(url);
 }
 
 export async function saveDraftEditAction(
