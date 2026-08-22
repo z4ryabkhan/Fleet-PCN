@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
-import { buildGoogleAuthUrl, isGoogleOAuthConfigured } from "@/lib/google-oauth";
+import { buildMicrosoftAuthUrl, isMicrosoftOAuthConfigured } from "@/lib/microsoft-oauth";
 
 export async function GET(request: Request) {
   const { origin } = new URL(request.url);
@@ -16,8 +16,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login`);
   }
 
-  if (!isGoogleOAuthConfigured()) {
-    return NextResponse.redirect(`${origin}/dashboard/email?error=not_configured&provider=gmail`);
+  if (!isMicrosoftOAuthConfigured()) {
+    return NextResponse.redirect(`${origin}/dashboard/email?error=not_configured&provider=outlook`);
   }
 
   const { profile, organisation } = await ensureAccountProvisioned(supabase, user);
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   const ownerId = organisation ? organisation.id : (profile?.id ?? user.id);
 
   const cookieStore = await cookies();
-  cookieStore.set("google_oauth_state", JSON.stringify({ csrf, ownerType, ownerId }), {
+  cookieStore.set("microsoft_oauth_state", JSON.stringify({ csrf, ownerType, ownerId }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -38,5 +38,5 @@ export async function GET(request: Request) {
     path: "/",
   });
 
-  return NextResponse.redirect(buildGoogleAuthUrl(csrf));
+  return NextResponse.redirect(buildMicrosoftAuthUrl(csrf));
 }
