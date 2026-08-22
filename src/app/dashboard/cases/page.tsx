@@ -61,7 +61,12 @@ export default async function CasesPage() {
           {!cases || cases.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-500">No cases yet.</p>
           ) : (
-            <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
+            <>
+              <p className="mt-3 text-xs text-zinc-500">
+                Deadlines are read from the notice where printed, or estimated from standard rules
+                for that issuer type otherwise. Always check the exact date on the notice itself.
+              </p>
+              <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-white/10 text-zinc-400">
                   <tr>
@@ -88,7 +93,8 @@ export default async function CasesPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>

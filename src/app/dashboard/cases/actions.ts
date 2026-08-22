@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPcnFromFile } from "@/lib/ocr";
+import { computeDeadlines } from "@/lib/deadlines";
 
 export type CaseActionState = { error: string } | { success: string } | undefined;
 
@@ -64,6 +65,11 @@ export async function addManualCaseAction(
 
   const extraction = await extractPcnFromFile(Buffer.from(await file.arrayBuffer()), file.type);
   if (extraction) {
+    // Prefer dates actually printed on the notice; only fall back to the
+    // computed standard-case estimate when the document didn't state one
+    // explicitly (OCR is instructed never to calculate these itself).
+    const computed = computeDeadlines(extraction.issuerType, extraction.noticeDate);
+
     await supabase
       .from("cases")
       .update({
@@ -73,10 +79,11 @@ export async function addManualCaseAction(
         contravention_code: extraction.contraventionCode,
         location_text: extraction.locationText,
         event_datetime: extraction.eventDatetime,
+        notice_date: extraction.noticeDate,
         amount_full: extraction.amountFull,
         amount_discounted: extraction.amountDiscounted,
-        discount_deadline: extraction.discountDeadline,
-        final_deadline: extraction.finalDeadline,
+        discount_deadline: extraction.discountDeadline ?? computed?.discountDeadline ?? null,
+        final_deadline: extraction.finalDeadline ?? computed?.finalDeadline ?? null,
         raw_ocr_json: extraction,
         status: "reviewing",
       })

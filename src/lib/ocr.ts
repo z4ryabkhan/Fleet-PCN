@@ -29,15 +29,30 @@ const PcnExtractionSchema = z.object({
     .string()
     .nullable()
     .describe("ISO 8601 datetime the contravention occurred, if stated"),
+  noticeDate: z
+    .string()
+    .nullable()
+    .describe(
+      "ISO 8601 date (YYYY-MM-DD) the notice itself was issued/served — often labelled " +
+        "'date of issue' or similar. This is usually a different, later date than " +
+        "eventDatetime, especially on postal notices. This is the date deadlines are " +
+        "legally counted from, so extract it carefully and separately from eventDatetime."
+    ),
   amountFull: z.number().nullable().describe("Full penalty amount in GBP"),
   amountDiscounted: z.number().nullable().describe("Early-payment discounted amount in GBP, if stated"),
-  discountDeadline: z.string().nullable().describe("ISO 8601 date (YYYY-MM-DD), if stated"),
-  finalDeadline: z.string().nullable().describe("ISO 8601 date (YYYY-MM-DD), if stated"),
+  discountDeadline: z
+    .string()
+    .nullable()
+    .describe("ISO 8601 date (YYYY-MM-DD), only if a specific deadline date is explicitly printed on the notice"),
+  finalDeadline: z
+    .string()
+    .nullable()
+    .describe("ISO 8601 date (YYYY-MM-DD), only if a specific deadline date is explicitly printed on the notice"),
 });
 
 export type PcnExtraction = z.infer<typeof PcnExtractionSchema>;
 
-const PROMPT = `This is a photo or PDF of a UK parking or traffic penalty notice (PCN). Extract the fields defined by the schema. Use null for any field that isn't legible or isn't present on the document — never guess or invent a value. Amounts are in GBP as plain numbers (e.g. 70, not "£70"). Dates are ISO 8601.`;
+const PROMPT = `This is a photo or PDF of a UK parking or traffic penalty notice (PCN). Extract the fields defined by the schema. Use null for any field that isn't legible or isn't present on the document — never guess or invent a value, and never calculate a deadline yourself: only fill discountDeadline/finalDeadline if a specific date is explicitly printed on the notice, not if you'd have to work it out from other dates. eventDatetime (when the contravention happened) and noticeDate (when the notice was issued/served) are usually different dates — extract each separately from wherever it actually appears on the document, don't assume they're the same. Amounts are in GBP as plain numbers (e.g. 70, not "£70"). Dates are ISO 8601.`;
 
 export async function extractPcnFromFile(
   fileBuffer: Buffer,
