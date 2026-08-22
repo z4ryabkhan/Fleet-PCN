@@ -59,9 +59,15 @@ export default async function DashboardPage() {
           </p>
         </a>
 
-        <p className="mt-8 text-sm text-zinc-500">
-          Case tracking and appeal drafting land in the next phase.
-        </p>
+        <a
+          href="/dashboard/cases"
+          className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
+        >
+          <p className="text-lg font-medium">Cases &rarr;</p>
+          <p className="mt-1 text-sm text-zinc-400">Upload a ticket and track your cases.</p>
+        </a>
+
+        <p className="mt-8 text-sm text-zinc-500">Appeal drafting lands in a later phase.</p>
       </div>
     </main>
   );
