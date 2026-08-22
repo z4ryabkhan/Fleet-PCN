@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Planal
 
-## Getting Started
+Fleet-first (secondary individual-consumer path) UK web app that catches parking/traffic
+penalty notices via email monitoring and manual upload, tracks deadlines, and uses AI to assess
+and draft appeals — with a human always confirming before anything is submitted.
 
-First, run the development server:
+The full spec — vision, product definition, monetisation, compliance, data model, tech stack,
+phased roadmap, and working rules — lives in [`PLANAL_MASTER_PLAN.md`](./PLANAL_MASTER_PLAN.md).
+That file is the source of truth; this README just orients you inside the repo.
+
+## Status: Phase 0 + Phase 1 (in progress)
+
+Currently live: the Phase 0 validation landing page (problem statement, fleet pricing
+hypothesis, waitlist form) plus the start of Phase 1 repo scaffolding. See Part 8 of the master
+plan for the full roadmap.
+
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind CSS
+- Supabase (Postgres + Auth + Storage + Row-Level Security)
+
+## Local setup
+
+```bash
+npm install
+cp .env.example .env.local
+```
+
+Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY` from your Supabase project (Settings → API) — required for the
+waitlist form to persist submissions. Everything else in `.env.example` is for later phases;
+leave it blank until the relevant phase needs it (see Part 7 of the master plan).
+
+Run the migration in `supabase/migrations/` against your Supabase project (SQL editor, or the
+Supabase CLI) before testing the waitlist form — it creates the `waitlist_signups` table with
+Row-Level Security enabled.
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Working rules
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Every table gets Row-Level Security from creation, not bolted on later. No scraping of
+third-party portals. No auto-submission of appeals. No case data before ownership/authorisation
+verification passes. Full list: Part 9 of `PLANAL_MASTER_PLAN.md`.
