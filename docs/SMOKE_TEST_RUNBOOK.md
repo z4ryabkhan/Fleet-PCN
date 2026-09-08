@@ -106,14 +106,15 @@ for the placeholders). Fill in `{VRM}` with your verified test vehicle's
 exact registration and `{NOTICE_DATE}` with today's date, then send it as
 a normal email **to** the mailbox you just connected. It doesn't need to
 come from anything that looks like a council — extraction classifies on
-content, not sender domain. Both fixtures are plain text with no
-attachment, which matches what `scan-mailboxes` actually reads today —
-it extracts from the email body text only, not from PDF/photo
-attachments (unlike the manual-upload path, which does OCR on an
-attached file). A real PCN forwarded as a PDF attachment with little or
-no body text won't extract well yet; that's a real gap worth knowing
-about before relying on this for real mail, not something to route
-around in this test.
+content, not sender domain.
+
+Both fixtures are plain text with no attachment, which exercises the
+body-text extraction path. `scan-mailboxes` also reads a PDF/photo
+attachment when a message has one (added this session, not yet
+exercised against a real mailbox) — worth a second pass once the plain-
+text case works: attach a PDF or photo of a real (or invented) PCN to
+a near-empty email and confirm it still extracts and shows up as
+evidence on the case, the same way a manual upload would.
 
 ## Step 4 — Trigger the scan
 
@@ -171,9 +172,9 @@ testing the second provider path through the same function.
 - This is also the point Part 4 rule 9 says to start the Google OAuth
   verification/security-assessment application — you now have a working
   demo and a live privacy policy, the two things it's gated on.
-- Decide whether the two known gaps matter enough to fix before a real
-  fleet pilot sees this: no PDF/photo attachment extraction (Step 3
-  above), and Outlook's Inbox-only scope missing mail an inbox rule
-  files elsewhere. Neither is silent data loss for a typical case — a
-  real PCN email almost always has enough in the body text alone to
-  extract — but worth a conscious call, not an accidental one.
+- Decide whether the remaining known gap matters enough to fix before a
+  real fleet pilot: Outlook's Inbox-only scope misses mail an inbox rule
+  files elsewhere (Gmail isn't affected — it queries the whole mailbox).
+  Not silent data loss for a typical case, but worth a conscious call.
+- Run the attachment case from Step 3 at least once — it's new this
+  session and hasn't touched a real mailbox yet.
