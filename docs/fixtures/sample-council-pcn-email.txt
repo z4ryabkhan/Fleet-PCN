@@ -1,0 +1,30 @@
+Subject: Penalty Charge Notice CM{PCN_NUMBER} - Payment Due
+
+Dear Sir/Madam,
+
+PENALTY CHARGE NOTICE
+
+Penalty Charge Notice Number: CM{PCN_NUMBER}
+Vehicle Registration Mark: {VRM}
+Date of Contravention: {EVENT_DATE} at 14:32
+Date of Issue: {NOTICE_DATE}
+Place of Contravention: Camden High Street, London NW1
+
+Contravention Code: 01 - Parked in a restricted street during prescribed hours
+
+London Borough of Camden observed the above vehicle parked in
+contravention of the parking regulations in force at this location. A
+Penalty Charge Notice was served under the Traffic Management Act 2004.
+
+Penalty Amount: GBP 130.00
+Reduced Payment (if paid within 14 days of the date of issue): GBP 65.00
+
+If the penalty charge is not paid within 28 days of the date of issue,
+and no representations have been made, a Notice to Owner will be issued
+and the charge will increase.
+
+You may make representations against this Penalty Charge Notice within
+28 days of the date of issue if you believe it was issued incorrectly.
+
+London Borough of Camden
+Parking Services

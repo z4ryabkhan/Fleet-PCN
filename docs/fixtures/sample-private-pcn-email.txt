@@ -1,0 +1,29 @@
+Subject: Parking Charge Notice {PCN_NUMBER} - {VRM}
+
+PARKING CHARGE NOTICE
+
+Notice Number: {PCN_NUMBER}
+Vehicle Registration: {VRM}
+Date of Event: {EVENT_DATE}, 09:15 - 11:47
+Date of Issue: {NOTICE_DATE}
+Site: Riverside Retail Park, Manchester M1 2AB
+
+Our Automatic Number Plate Recognition (ANPR) cameras recorded the
+above vehicle entering and exiting the site on the date shown, exceeding
+the maximum stay of 2 hours permitted under the terms and conditions
+displayed on signage throughout the car park.
+
+As the registered keeper, you are liable for this charge under the
+Protection of Freedoms Act 2012, Schedule 4, unless you identify the
+driver.
+
+Charge Amount: GBP 100.00
+Discounted Amount (if paid within 14 days of the date of issue): GBP 60.00
+
+You have the right to appeal this Parking Charge Notice. If you wish to
+appeal, you may do so within 28 days of the date of issue via our
+website or in writing, and independently via the IAS or POPLA if our
+internal appeal is unsuccessful.
+
+Regards,
+Private Parking Enforcement Ltd
