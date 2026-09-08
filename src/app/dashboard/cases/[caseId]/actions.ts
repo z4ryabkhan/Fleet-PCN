@@ -352,6 +352,90 @@ export async function markCasePaidAction(
   return { success: "Marked as paid. Reminders for this case are cancelled." };
 }
 
+// Mirrors supabase/migrations/0010_cases_and_evidence.sql's issuer_type
+// check constraint — keep in sync (same duplication this codebase
+// already accepts elsewhere, e.g. src/lib/deadlines.ts and
+// scan-mailboxes/index.ts).
+const CASE_ISSUER_TYPES = [
+  "council_pcn",
+  "tfl_pcn",
+  "congestion_charge",
+  "ulez",
+  "dart_charge",
+  "private_pcn",
+  "bus_lane",
+  "moving_traffic",
+] as const;
+
+// addManualCaseAction's own success message says "add the details
+// manually" whenever OCR doesn't return an extraction (no API key
+// configured, or the notice just wasn't legible) — but until this
+// action existed, there was no form anywhere to actually do that. Same
+// RLS as every other case update (0005/0010's "vehicle owners and org
+// admins can update cases"), no new authorization needed.
+export async function updateCaseDetailsAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+
+  const issuerType = String(formData.get("issuerType") || "");
+  if (issuerType && !CASE_ISSUER_TYPES.includes(issuerType as (typeof CASE_ISSUER_TYPES)[number])) {
+    return { error: "Invalid issuer type." };
+  }
+
+  const parseMoney = (raw: FormDataEntryValue | null): number | null => {
+    const s = String(raw ?? "").trim();
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? n : NaN;
+  };
+  const amountFull = parseMoney(formData.get("amountFull"));
+  const amountDiscounted = parseMoney(formData.get("amountDiscounted"));
+  if (Number.isNaN(amountFull) || Number.isNaN(amountDiscounted)) {
+    return { error: "Amounts must be numbers, e.g. 70 or 35.50." };
+  }
+
+  const parseDate = (raw: FormDataEntryValue | null): string | null => {
+    const s = String(raw ?? "").trim();
+    return s || null;
+  };
+
+  const update: Record<string, unknown> = {
+    issuer_name: String(formData.get("issuerName") || "").trim() || null,
+    issuer_type: issuerType || null,
+    reference_number: String(formData.get("referenceNumber") || "").trim() || null,
+    contravention_code: String(formData.get("contraventionCode") || "").trim() || null,
+    contravention_description: String(formData.get("contraventionDescription") || "").trim() || null,
+    location_text: String(formData.get("locationText") || "").trim() || null,
+    amount_full: amountFull,
+    amount_discounted: amountDiscounted,
+    discount_deadline: parseDate(formData.get("discountDeadline")),
+    final_deadline: parseDate(formData.get("finalDeadline")),
+  };
+
+  // Only ever advances 'new' (nothing filled in yet) to 'reviewing' —
+  // never touches status on a case that's already further along
+  // (appealing/paid/appealed/closed), so correcting a typo after the
+  // fact can't accidentally reopen a settled case.
+  const { data: current } = await supabase.from("cases").select("status").eq("id", caseId).single();
+  if (current?.status === "new") update.status = "reviewing";
+
+  const { error } = await supabase.from("cases").update(update).eq("id", caseId);
+
+  if (error) return { error: "Could not save these details. Please try again." };
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  revalidatePath("/dashboard/cases");
+  return { success: "Details saved." };
+}
+
 export async function addEvidenceAction(
   _prevState: CaseDetailActionState,
   formData: FormData

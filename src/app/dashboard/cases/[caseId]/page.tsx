@@ -5,7 +5,7 @@ import { ensureAccountProvisioned } from "@/lib/account";
 import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
-import { MarkPaidButton } from "@/components/cases/MarkPaidButton";
+import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
 import { formatCaseSummary } from "@/lib/case-summary";
 
 export const metadata = { title: "Case — Planal" };
@@ -105,52 +105,22 @@ export default async function CaseDetailPage({
           })}
         </p>
 
-        <div className="mt-6 grid gap-4 rounded-xl border border-white/10 p-6 sm:grid-cols-2">
-          <div>
-            <p className="text-sm text-zinc-400">Issuer</p>
-            <p className="mt-1">{caseRow.issuer_name ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Reference</p>
-            <p className="mt-1">{caseRow.reference_number ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Contravention</p>
-            <p className="mt-1">
-              {caseRow.contravention_description ?? "—"}
-              {caseRow.contravention_code && (
-                <span className="text-zinc-500"> (code {caseRow.contravention_code})</span>
-              )}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Location</p>
-            <p className="mt-1">{caseRow.location_text ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Full amount</p>
-            <p className="mt-1">{caseRow.amount_full != null ? `£${caseRow.amount_full}` : "—"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Discounted amount</p>
-            <p className="mt-1">
-              {caseRow.amount_discounted != null ? `£${caseRow.amount_discounted}` : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Discount deadline</p>
-            <p className="mt-1">{caseRow.discount_deadline ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Final deadline</p>
-            <p className="mt-1">{caseRow.final_deadline ?? "—"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-zinc-400">Status</p>
-            <p className="mt-1 capitalize">{caseRow.status}</p>
-            {!["paid", "closed"].includes(caseRow.status) && <MarkPaidButton caseId={caseId} />}
-          </div>
-        </div>
+        <CaseDetailsCard
+          caseId={caseId}
+          details={{
+            issuer_name: caseRow.issuer_name,
+            issuer_type: caseRow.issuer_type,
+            reference_number: caseRow.reference_number,
+            contravention_code: caseRow.contravention_code,
+            contravention_description: caseRow.contravention_description,
+            location_text: caseRow.location_text,
+            amount_full: caseRow.amount_full,
+            amount_discounted: caseRow.amount_discounted,
+            discount_deadline: caseRow.discount_deadline,
+            final_deadline: caseRow.final_deadline,
+            status: caseRow.status,
+          }}
+        />
 
         {paid === "0" && (
           <p className="mt-4 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-zinc-300">
