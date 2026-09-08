@@ -384,6 +384,67 @@ async function extractPcnFromEmailText(subject: string, bodyText: string): Promi
   return toolUse.input as Extraction;
 }
 
+// --- New-case notification
+//
+// Without this, "catches it in minutes" (the master plan's whole pitch
+// for this pipeline, Part 1.1) delivered nothing of the sort in
+// practice — a case appeared in the database, but nobody found out
+// until they happened to open the dashboard. The T-7/T-2/T-1 deadline
+// reminders (send-reminders) don't cover this: those fire close to a
+// deadline, not the moment something is actually detected. Same Resend
+// sandbox-address caveat as send-reminders/index.ts until a Planal
+// domain is verified there.
+
+const FROM_EMAIL = "Planal <onboarding@resend.dev>";
+
+async function sendNewCaseEmail(apiKey: string, to: string, vrm: string, issuerName: string | null) {
+  const issuer = issuerName ?? "an issuer";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: FROM_EMAIL,
+      to,
+      subject: `Planal — new PCN found for ${vrm}`,
+      text: `We found a new penalty notice for ${vrm} from ${issuer} in your connected inbox. Log in to Planal to see the details, the deadline, and your appeal options.`,
+    }),
+  });
+  if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
+}
+
+async function notifyNewCase(
+  supabase: ReturnType<typeof createClient>,
+  resendKey: string | undefined,
+  ownerType: "individual" | "organisation",
+  ownerId: string,
+  vrm: string,
+  issuerName: string | null
+) {
+  if (!resendKey) return; // inert without the key, same pattern as send-reminders
+  try {
+    let emails: string[] = [];
+    if (ownerType === "individual") {
+      const { data } = await supabase.from("users").select("email").eq("id", ownerId).maybeSingle();
+      if (data?.email) emails = [data.email as string];
+    } else {
+      const { data } = await supabase
+        .from("memberships")
+        .select("users(email)")
+        .eq("organisation_id", ownerId)
+        .eq("role", "admin")
+        .returns<{ users: { email: string | null } }[]>();
+      emails = (data ?? []).map((m) => m.users?.email).filter((e): e is string => Boolean(e));
+    }
+    for (const email of emails) {
+      await sendNewCaseEmail(resendKey, email, vrm, issuerName);
+    }
+  } catch (err) {
+    // Never let a notification failure undo or block the case that was
+    // already successfully created — log and move on.
+    console.error("Failed to send new-case notification", err);
+  }
+}
+
 // --- Main
 
 Deno.serve(async (req: Request) => {
@@ -392,6 +453,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const resendKey = Deno.env.get("RESEND_API_KEY");
 
   const { data: connections, error: connectionsError } = await supabase
     .from("email_connections")
@@ -498,6 +560,14 @@ Deno.serve(async (req: Request) => {
 
         if (!insertError) {
           casesCreated++;
+          await notifyNewCase(
+            supabase,
+            resendKey,
+            conn.owner_type,
+            conn.owner_type === "individual" ? conn.owner_user_id! : conn.owner_organisation_id!,
+            extraction.vrm!,
+            extraction.issuerName
+          );
         } else if (!insertError.message.includes("cases_source_message_id_unique")) {
           // A real failure (e.g. verification not passed) — log and move
           // on rather than losing the rest of the batch.
