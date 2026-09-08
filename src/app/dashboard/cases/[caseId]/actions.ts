@@ -245,7 +245,10 @@ export async function markCasePaidAction(
 
   const caseId = String(formData.get("caseId") || "");
 
-  const { error } = await supabase.from("cases").update({ status: "paid" }).eq("id", caseId);
+  const { error } = await supabase
+    .from("cases")
+    .update({ status: "paid", paid_at: new Date().toISOString() })
+    .eq("id", caseId);
   if (error) return { error: "Could not update the case. Please try again." };
 
   const admin = getSupabaseAdminClient();
