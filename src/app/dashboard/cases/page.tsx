@@ -12,8 +12,10 @@ type CaseRow = {
   amount_full: number | null;
   final_deadline: string | null;
   status: string;
-  vehicles: { vrm: string } | null;
+  vehicles: { vrm: string; assigned_driver_user_id: string | null } | null;
 };
+
+type MemberRow = { user_id: string; users: { email: string; full_name: string | null } | null };
 
 export default async function CasesPage() {
   const supabase = await getSupabaseServerClient();
@@ -28,16 +30,29 @@ export default async function CasesPage() {
     ? supabase.from("vehicles").select("id, vrm").eq("owner_organisation_id", organisation.id)
     : supabase.from("vehicles").select("id, vrm").eq("owner_user_id", user.id);
 
-  const [{ data: vehicles }, { data: cases }] = await Promise.all([
+  const [{ data: vehicles }, { data: cases }, { data: memberRows }] = await Promise.all([
     vehicleQuery.order("vrm"),
     supabase
       .from("cases")
       // Cast needed: Supabase's generated-free client types this embedded
       // relation as an array by default; it's a single row via the FK.
-      .select("id, reference_number, issuer_name, amount_full, final_deadline, status, vehicles(vrm)")
+      .select(
+        "id, reference_number, issuer_name, amount_full, final_deadline, status, vehicles(vrm, assigned_driver_user_id)"
+      )
       .order("final_deadline", { ascending: true, nullsFirst: false })
       .returns<CaseRow[]>(),
+    organisation
+      ? supabase
+          .from("memberships")
+          .select("user_id, users(email, full_name)")
+          .eq("organisation_id", organisation.id)
+          .returns<MemberRow[]>()
+      : Promise.resolve({ data: null }),
   ]);
+
+  const driverLabelById = new Map(
+    (memberRows ?? []).map((m) => [m.user_id, m.users?.full_name ?? m.users?.email ?? m.user_id])
+  );
 
   return (
     <main className="min-h-full bg-zinc-950 px-6 py-16 text-white">
@@ -71,6 +86,7 @@ export default async function CasesPage() {
                 <thead className="border-b border-white/10 text-zinc-400">
                   <tr>
                     <th className="px-4 py-3 font-medium">Vehicle</th>
+                    {organisation && <th className="px-4 py-3 font-medium">Driver</th>}
                     <th className="px-4 py-3 font-medium">Issuer</th>
                     <th className="px-4 py-3 font-medium">Reference</th>
                     <th className="px-4 py-3 font-medium">Value</th>
@@ -89,6 +105,15 @@ export default async function CasesPage() {
                           {c.vehicles?.vrm ?? "—"}
                         </a>
                       </td>
+                      {organisation && (
+                        <td className="px-4 py-3 text-zinc-300">
+                          <a href={`/dashboard/cases/${c.id}`} className="block">
+                            {c.vehicles?.assigned_driver_user_id
+                              ? (driverLabelById.get(c.vehicles.assigned_driver_user_id) ?? "—")
+                              : "Unassigned"}
+                          </a>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-zinc-300">
                         <a href={`/dashboard/cases/${c.id}`} className="block">
                           {c.issuer_name ?? "—"}

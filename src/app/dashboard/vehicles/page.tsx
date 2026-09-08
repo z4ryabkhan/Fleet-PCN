@@ -4,6 +4,7 @@ import { ensureAccountProvisioned } from "@/lib/account";
 import { AddVehicleForm } from "@/components/vehicles/AddVehicleForm";
 import { ImportVehiclesForm } from "@/components/vehicles/ImportVehiclesForm";
 import { OrgVerificationForm } from "@/components/vehicles/OrgVerificationForm";
+import { AssignDriverSelect } from "@/components/vehicles/AssignDriverSelect";
 
 export const metadata = { title: "Vehicles — Planal" };
 
@@ -15,7 +16,10 @@ type Vehicle = {
   tax_status: string | null;
   mot_status: string | null;
   ownership_verification_status: string;
+  assigned_driver_user_id: string | null;
 };
+
+type MemberRow = { user_id: string; users: { email: string; full_name: string | null } | null };
 
 export default async function VehiclesPage() {
   const supabase = await getSupabaseServerClient();
@@ -28,28 +32,43 @@ export default async function VehiclesPage() {
 
   let vehicles: Vehicle[] = [];
   let orgVerified = false;
+  let members: { userId: string; label: string }[] = [];
 
   if (organisation) {
-    const [{ data: vehicleRows }, { data: orgRow }] = await Promise.all([
+    const [{ data: vehicleRows }, { data: orgRow }, { data: memberRows }] = await Promise.all([
       supabase
         .from("vehicles")
-        .select("id, vrm, make, colour, tax_status, mot_status, ownership_verification_status")
+        .select(
+          "id, vrm, make, colour, tax_status, mot_status, ownership_verification_status, assigned_driver_user_id"
+        )
         .eq("owner_organisation_id", organisation.id)
         .order("vrm"),
       supabase.from("organisations").select("verification_status").eq("id", organisation.id).single(),
+      supabase
+        .from("memberships")
+        .select("user_id, users(email, full_name)")
+        .eq("organisation_id", organisation.id)
+        .returns<MemberRow[]>(),
     ]);
     vehicles = vehicleRows ?? [];
     orgVerified = orgRow?.verification_status === "verified";
+    members = (memberRows ?? []).map((m) => ({
+      userId: m.user_id,
+      label: m.users?.full_name ?? m.users?.email ?? m.user_id,
+    }));
   } else {
     const { data: vehicleRows } = await supabase
       .from("vehicles")
-      .select("id, vrm, make, colour, tax_status, mot_status, ownership_verification_status")
+      .select(
+        "id, vrm, make, colour, tax_status, mot_status, ownership_verification_status, assigned_driver_user_id"
+      )
       .eq("owner_user_id", user.id)
       .order("vrm");
     vehicles = vehicleRows ?? [];
   }
 
   const isAdmin = organisation?.role === "admin";
+  const membersById = new Map(members.map((m) => [m.userId, m.label]));
 
   return (
     <main className="min-h-full bg-zinc-950 px-6 py-16 text-white">
@@ -98,6 +117,7 @@ export default async function VehiclesPage() {
                     <th className="px-4 py-3 font-medium">Tax</th>
                     <th className="px-4 py-3 font-medium">MOT</th>
                     <th className="px-4 py-3 font-medium">Verification</th>
+                    {organisation && <th className="px-4 py-3 font-medium">Driver</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -111,6 +131,23 @@ export default async function VehiclesPage() {
                       <td className="px-4 py-3 capitalize text-zinc-300">
                         {organisation ? (orgVerified ? "verified" : "pending") : v.ownership_verification_status}
                       </td>
+                      {organisation && (
+                        <td className="px-4 py-3">
+                          {isAdmin ? (
+                            <AssignDriverSelect
+                              vehicleId={v.id}
+                              currentDriverUserId={v.assigned_driver_user_id}
+                              members={members}
+                            />
+                          ) : (
+                            <span className="text-zinc-300">
+                              {v.assigned_driver_user_id
+                                ? (membersById.get(v.assigned_driver_user_id) ?? "—")
+                                : "Unassigned"}
+                            </span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
