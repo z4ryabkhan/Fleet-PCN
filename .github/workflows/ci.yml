@@ -16,9 +16,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # @supabase/* deps require >=22 (npm warns EBADENGINE on 20);
+          # matches local dev, which already runs on 22.
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npx tsc --noEmit
+      # No standalone `tsc --noEmit` step: LayoutProps<"/"> (used in
+      # src/app/layout.tsx) comes from Next's auto-generated route types in
+      # .next/types, which only exist after `next build` has run at least
+      # once — a bare tsc run before that fails with "Cannot find name
+      # 'LayoutProps'" on a file this PR never touched. `next build` below
+      # already runs its own full TypeScript check as part of the build
+      # (confirmed locally: "Running TypeScript ... Finished TypeScript"),
+      # so the separate step was both broken and redundant.
       - run: npm run build
