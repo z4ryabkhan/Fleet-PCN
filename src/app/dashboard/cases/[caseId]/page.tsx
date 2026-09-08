@@ -7,8 +7,22 @@ import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
 import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
 import { formatCaseSummary } from "@/lib/case-summary";
+import { formatAuditAction } from "@/lib/audit-log";
 
 export const metadata = { title: "Case — Planal" };
+
+// Single row via the users.id FK — same cast-with-.returns() pattern
+// src/app/dashboard/cases/page.tsx already uses for the equivalent
+// memberships -> users embed, since the generated-free client types an
+// embedded relation as an array by default.
+type AuditLogRow = {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  users: { email: string; full_name: string | null } | null;
+};
 
 export default async function CaseDetailPage({
   params,
@@ -39,7 +53,18 @@ export default async function CaseDetailPage({
 
   const vehicle = caseRow.vehicles as unknown as { vrm: string } | null;
 
-  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }] =
+  // Part 4 rule 7: "Audit log every access to a vehicle's case data —
+  // actor, action, timestamp." Writes have been logged since migration
+  // 0007; this is the read half, which never existed until now — see
+  // 0031's own comment. Runs before the Promise.all below so this view
+  // itself shows up at the top of the Activity log fetched there. Errors
+  // are logged, not thrown: caseRow already proved this user can see this
+  // case, so a failure here means something's actually wrong, but it
+  // shouldn't block the user from seeing their own case.
+  const { error: logViewError } = await supabase.rpc("log_case_view", { p_case_id: caseId });
+  if (logViewError) console.error("log_case_view failed", logViewError);
+
+  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }, { data: auditLog }] =
     await Promise.all([
       supabase
         .from("evidence")
@@ -75,6 +100,12 @@ export default async function CaseDetailPage({
             .eq("provider", "gmail")
             .eq("status", "connected")
             .maybeSingle(),
+      supabase
+        .from("audit_log")
+        .select("id, actor_user_id, action, metadata, created_at, users(email, full_name)")
+        .eq("metadata->>case_id", caseId)
+        .order("created_at", { ascending: false })
+        .returns<AuditLogRow[]>(),
     ]);
 
   const gmailDraftAvailable = Boolean(
@@ -160,6 +191,37 @@ export default async function CaseDetailPage({
               </ul>
             )}
           </div>
+        </div>
+
+        <div className="mt-8">
+          <h2 className="text-lg font-medium">Activity log</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Every access to this case, with who and when — required under UK GDPR for the
+            location/time data a PCN carries.
+          </p>
+          {!auditLog || auditLog.length === 0 ? (
+            <p className="mt-2 text-sm text-zinc-500">No activity recorded yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {auditLog.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between rounded-md border border-white/10 px-4 py-2 text-sm"
+                >
+                  <span className="text-zinc-300">
+                    {formatAuditAction(entry.action)}
+                    <span className="text-zinc-500">
+                      {" "}
+                      &middot; {entry.users?.full_name ?? entry.users?.email ?? "Unknown user"}
+                    </span>
+                  </span>
+                  <span className="text-zinc-500">
+                    {new Date(entry.created_at).toLocaleString("en-GB")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </main>
