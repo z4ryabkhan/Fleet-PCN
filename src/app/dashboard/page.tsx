@@ -80,6 +80,14 @@ export default async function DashboardPage() {
           </p>
         </Link>
 
+        <Link
+          href="/dashboard/settings"
+          className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
+        >
+          <p className="text-lg font-medium">Settings &rarr;</p>
+          <p className="mt-1 text-sm text-zinc-400">Your name, phone number, and reminder preferences.</p>
+        </Link>
+
         {organisation && organisation.role === "admin" && (
           <>
             <Link
