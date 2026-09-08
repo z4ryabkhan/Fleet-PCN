@@ -5,6 +5,7 @@ import { ensureAccountProvisioned } from "@/lib/account";
 import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
+import { MarkPaidButton } from "@/components/cases/MarkPaidButton";
 
 export const metadata = { title: "Case — Planal" };
 
@@ -109,6 +110,7 @@ export default async function CaseDetailPage({
           <div>
             <p className="text-sm text-zinc-400">Status</p>
             <p className="mt-1 capitalize">{caseRow.status}</p>
+            {!["paid", "closed"].includes(caseRow.status) && <MarkPaidButton caseId={caseId} />}
           </div>
         </div>
 

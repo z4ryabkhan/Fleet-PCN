@@ -223,6 +223,39 @@ export async function confirmAppealAction(
   return { success: "Marked as appealed. Remember: you still need to submit this yourself." };
 }
 
+// Part 2.2 individual journey step 4 promises paying the fine as the
+// alternative to appealing it; nothing in the app could previously record
+// that a user chose to pay it themselves, off-platform (Planal is never
+// merchant of record for the fine itself — Part 2.2 step 4 again — so
+// this only ever updates Planal's own record, same "never touches a
+// third-party system" posture as confirmAppealAction). Cancels any
+// not-yet-sent reminders for the case, since there's no deadline left to
+// remind anyone about once it's paid; already-sent ones are left alone as
+// a record of what went out, same reasoning regenerate_case_reminders()
+// (0012) already uses for deadline changes.
+export async function markCasePaidAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+
+  const { error } = await supabase.from("cases").update({ status: "paid" }).eq("id", caseId);
+  if (error) return { error: "Could not update the case. Please try again." };
+
+  const admin = getSupabaseAdminClient();
+  await admin.from("reminders").delete().eq("case_id", caseId).is("sent_at", null);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  revalidatePath("/dashboard/cases");
+  return { success: "Marked as paid. Reminders for this case are cancelled." };
+}
+
 export async function addEvidenceAction(
   _prevState: CaseDetailActionState,
   formData: FormData
