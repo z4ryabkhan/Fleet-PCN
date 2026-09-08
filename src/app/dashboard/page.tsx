@@ -81,13 +81,23 @@ export default async function DashboardPage() {
         </Link>
 
         {organisation && organisation.role === "admin" && (
-          <Link
-            href="/dashboard/billing"
-            className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-          >
-            <p className="text-lg font-medium">Billing &rarr;</p>
-            <p className="mt-1 text-sm text-zinc-400">Manage your fleet subscription.</p>
-          </Link>
+          <>
+            <Link
+              href="/dashboard/team"
+              className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
+            >
+              <p className="text-lg font-medium">Team &rarr;</p>
+              <p className="mt-1 text-sm text-zinc-400">Invite admins and drivers to your fleet.</p>
+            </Link>
+
+            <Link
+              href="/dashboard/billing"
+              className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
+            >
+              <p className="text-lg font-medium">Billing &rarr;</p>
+              <p className="mt-1 text-sm text-zinc-400">Manage your fleet subscription.</p>
+            </Link>
+          </>
         )}
       </div>
     </main>

@@ -61,14 +61,16 @@ Open [http://localhost:3000](http://localhost:3000).
 Signup confirmation and magic-link emails need to link to `/auth/confirm?token_hash=...&type=...`
 (handled by `src/app/auth/confirm/route.ts`), not Supabase's default `{{ .ConfirmationURL }}`
 link. In the Supabase dashboard, under Authentication → Email Templates, update the
-**Confirm signup** and **Magic Link** templates' link to:
+**Confirm signup**, **Magic Link**, and **Invite user** templates' link to:
 
 ```
 {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email
 ```
 
-(use `type=magiclink` for the Magic Link template). Until this is set, confirmation/magic-link
-emails will use Supabase's own hosted verify page instead of this route.
+(use `type=magiclink` for the Magic Link template, `type=invite` for Invite user). Until this is
+set, confirmation/magic-link/invite emails will use Supabase's own hosted verify page instead of
+this route. Team invites (`/dashboard/team`, fleet admins only) send through the Invite user
+template via `admin.inviteUserByEmail` — see migration `0024_team_invites.sql`.
 
 ### Supabase's shared SMTP has a low rate limit
 
