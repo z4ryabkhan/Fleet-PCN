@@ -24,6 +24,14 @@ const PcnExtractionSchema = z.object({
   issuerType: z.enum(ISSUER_TYPES).nullable(),
   referenceNumber: z.string().nullable(),
   contraventionCode: z.string().nullable(),
+  contraventionDescription: z
+    .string()
+    .nullable()
+    .describe(
+      "The human-readable reason for the notice, in the words actually printed on the " +
+        "document (e.g. 'Parked in a restricted street during prescribed hours') — not a " +
+        "paraphrase, and not inferred from the code alone if no wording is present."
+    ),
   locationText: z.string().nullable(),
   eventDatetime: z
     .string()
@@ -52,7 +60,7 @@ const PcnExtractionSchema = z.object({
 
 export type PcnExtraction = z.infer<typeof PcnExtractionSchema>;
 
-const PROMPT = `This is a photo or PDF of a UK parking or traffic penalty notice (PCN). Extract the fields defined by the schema. Use null for any field that isn't legible or isn't present on the document — never guess or invent a value, and never calculate a deadline yourself: only fill discountDeadline/finalDeadline if a specific date is explicitly printed on the notice, not if you'd have to work it out from other dates. eventDatetime (when the contravention happened) and noticeDate (when the notice was issued/served) are usually different dates — extract each separately from wherever it actually appears on the document, don't assume they're the same. Amounts are in GBP as plain numbers (e.g. 70, not "£70"). Dates are ISO 8601.`;
+const PROMPT = `This is a photo or PDF of a UK parking or traffic penalty notice (PCN). Extract the fields defined by the schema. Use null for any field that isn't legible or isn't present on the document — never guess or invent a value, and never calculate a deadline yourself: only fill discountDeadline/finalDeadline if a specific date is explicitly printed on the notice, not if you'd have to work it out from other dates. eventDatetime (when the contravention happened) and noticeDate (when the notice was issued/served) are usually different dates — extract each separately from wherever it actually appears on the document, don't assume they're the same. contraventionDescription is the reason wording as actually printed (separate from contraventionCode, the DfT code number) — leave it null if the notice only states a code with no wording. Amounts are in GBP as plain numbers (e.g. 70, not "£70"). Dates are ISO 8601.`;
 
 export async function extractPcnFromFile(
   fileBuffer: Buffer,

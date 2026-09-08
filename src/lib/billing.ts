@@ -2,9 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getStripeClient,
   PRICE_FLEET_PLATFORM,
+  PRICE_FLEET_EXTRA_VEHICLE,
   PRICE_FLEET_PER_CASE,
   PRICE_INDIVIDUAL_PER_CASE,
 } from "./stripe";
+
+// A fleet's first 10 vehicles are covered by the platform fee (Part 3);
+// beyond that, PRICE_FLEET_EXTRA_VEHICLE bills per vehicle. Duplicated
+// here rather than only living in the Part 3 pricing table in the master
+// plan — this is the one place in the codebase that actually has to agree
+// with that number.
+const FLEET_VEHICLES_INCLUDED_IN_PLATFORM_FEE = 10;
 
 type Owner = { ownerType: "individual" | "organisation"; ownerId: string; email: string; name: string };
 
@@ -147,5 +155,72 @@ export async function addFleetPerCaseCharge(
     });
   } catch (err) {
     console.error("Failed to add fleet per-case charge", err);
+  }
+}
+
+/** Keeps the "£2/vehicle/month beyond 10" part of Part 3's fleet pricing
+ * actually billed — PRICE_FLEET_EXTRA_VEHICLE existed in .env.example and
+ * src/lib/stripe.ts since Phase 8 shipped, but nothing ever called it, so
+ * a fleet with e.g. 50 vehicles was only ever charged the flat platform
+ * fee. Call this after any change to an organisation's vehicle count
+ * (currently: only importFleetVehiclesCsvAction — there's no
+ * remove-vehicle feature yet to also call it from).
+ *
+ * Adds a second subscription item at the extra-vehicle price, quantity =
+ * vehicles beyond the included 10, and keeps its quantity in sync on
+ * later calls rather than creating a duplicate item each time. Silently
+ * no-ops if the org has no active subscription yet, same as
+ * addFleetPerCaseCharge — importing vehicles ahead of completing billing
+ * setup shouldn't block the import itself.
+ *
+ * UNVERIFIED LIVE: this session had no network access to Stripe's API to
+ * exercise this against a real subscription. Quantity 0 on an existing
+ * subscription item (the "back under 10 vehicles" case, currently
+ * unreachable with no remove-vehicle feature, but worth getting right
+ * before one exists) is a standard Stripe pattern for seat-based billing
+ * but hasn't been tested here — confirm it behaves as expected in test
+ * mode before relying on it. */
+export async function syncFleetVehicleCountBilling(
+  adminSupabase: SupabaseClient,
+  organisationId: string
+): Promise<void> {
+  const stripe = getStripeClient();
+  if (!stripe || !PRICE_FLEET_EXTRA_VEHICLE) return;
+
+  const { data: account } = await adminSupabase
+    .from("billing_accounts")
+    .select("stripe_subscription_id, subscription_status, stripe_extra_vehicle_item_id")
+    .eq("owner_organisation_id", organisationId)
+    .maybeSingle();
+
+  if (!account || account.subscription_status !== "active" || !account.stripe_subscription_id) return;
+
+  const { count } = await adminSupabase
+    .from("vehicles")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_organisation_id", organisationId);
+
+  const extraVehicles = Math.max(0, (count ?? 0) - FLEET_VEHICLES_INCLUDED_IN_PLATFORM_FEE);
+
+  try {
+    if (account.stripe_extra_vehicle_item_id) {
+      await stripe.subscriptionItems.update(account.stripe_extra_vehicle_item_id, {
+        quantity: extraVehicles,
+        proration_behavior: "create_prorations",
+      });
+    } else if (extraVehicles > 0) {
+      const item = await stripe.subscriptionItems.create({
+        subscription: account.stripe_subscription_id,
+        price: PRICE_FLEET_EXTRA_VEHICLE,
+        quantity: extraVehicles,
+        proration_behavior: "create_prorations",
+      });
+      await adminSupabase
+        .from("billing_accounts")
+        .update({ stripe_extra_vehicle_item_id: item.id })
+        .eq("owner_organisation_id", organisationId);
+    }
+  } catch (err) {
+    console.error("Failed to sync fleet extra-vehicle billing", err);
   }
 }

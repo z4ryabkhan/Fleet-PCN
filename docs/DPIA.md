@@ -6,9 +6,10 @@ point, not to be relied on as a completed DPIA. Do not treat this document as
 legal advice, and do not launch to real (non-test) users on the strength of this
 draft alone — get it reviewed first.
 
-Last updated: 2026-08-22, reflecting the schema and features shipped through
-migration `0019_data_retention.sql` (Phases 0–9 foundation work; email-inbox
-scanning itself is OAuth-connect-only so far, not yet parsing message content).
+Last updated: 2026-09-08, reflecting the schema and features shipped through
+migration `0020_evidence_special_category_data.sql` (Phases 0–9 foundation
+work; email-inbox scanning itself is OAuth-connect-only so far, not yet
+parsing message content).
 
 ## 1. Why a DPIA is needed
 
@@ -60,8 +61,14 @@ breakdown "mitigating circumstances" appeal ground (§2.4) is an exception
 worth flagging to the solicitor specifically — a user may voluntarily disclose
 health information as evidence for an appeal, which would then be special-
 category data processed on an explicit-consent basis (the user is the one
-uploading it, for their own benefit). This needs an explicit legal-basis note
-in the final policy, not just a passing mention.
+uploading it, for their own benefit). As of migration `0020_evidence_special_
+category_data.sql`, the evidence upload form asks the uploader to self-declare
+whether a file may contain health information and, if so, requires an explicit
+consent checkbox in the same step (Article 9(2)(a)) before the upload is
+accepted — enforced by a CHECK constraint, not just application logic. This
+doesn't attempt to detect special-category content automatically (unreliable,
+out of scope); it relies on the uploader's own declaration. The solicitor
+should still confirm the consent wording is sufficient for the final policy.
 
 ### 2.3 Purposes and legal basis (working assessment, confirm with solicitor)
 
@@ -153,7 +160,7 @@ this becomes the published privacy policy's basis.
 | A stranger enters someone else's VRM and sees their PCN history | Low (RLS scopes every query to the vehicle's actual owner/org) | High if it occurred | RLS policies verified per-table; no VRM-only public lookup exists anywhere in the product (Part 9 rule 1/§2.6) |
 | OAuth token compromise exposes a user's inbox | Low | High | Encryption at rest, read-only scopes, one-click revoke |
 | AI appeal assessment relied on as a guaranteed outcome | Medium (user behaviour risk, not a technical one) | Medium | Mandatory disclaimer on every assessment, human-confirm step before "appealed" status |
-| Special-category (health) data uploaded as mitigating-circumstances evidence | Medium | Medium-High | Needs explicit handling in the final privacy policy (see §2.2); currently stored the same as any other evidence file, not specially flagged — **open item for solicitor** |
+| Special-category (health) data uploaded as mitigating-circumstances evidence | Medium | Medium-High | Uploader self-declares and gives explicit consent at upload time (see §2.2); DB constraint blocks the flag without consent. **Open item for solicitor**: confirm the consent wording is legally sufficient for the final policy |
 | Indefinite retention of case/evidence data with no auto-deletion window | Medium (currently true) | Medium | **Open item** — needs a retention policy decision and matching implementation before launch |
 | Audit log retained indefinitely (deliberately, to survive erasure of the rows it describes) | Low-Medium | Low | **Open item for solicitor** — confirm this is proportionate or needs its own cap |
 

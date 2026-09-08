@@ -7,6 +7,7 @@ import {
   confirmAppealAction,
   setOutcomeAction,
   startIndividualCasePaymentAction,
+  createGmailDraftAction,
   type CaseDetailActionState,
 } from "@/app/dashboard/cases/[caseId]/actions";
 import { groundLabel, type AppealGround } from "@/lib/appeal";
@@ -35,12 +36,14 @@ export function AssessmentPanel({
   disclaimer,
   requiresPayment,
   isPaid,
+  gmailDraftAvailable,
 }: {
   caseId: string;
   appeal: Appeal | null;
   disclaimer: string;
   requiresPayment: boolean;
   isPaid: boolean;
+  gmailDraftAvailable: boolean;
 }) {
   const [assessState, assessAction, assessPending] = useActionState(
     requestAssessmentAction,
@@ -57,6 +60,10 @@ export function AssessmentPanel({
   );
   const [outcomeState, outcomeAction, outcomePending] = useActionState(
     setOutcomeAction,
+    initialState
+  );
+  const [gmailState, gmailAction, gmailPending] = useActionState(
+    createGmailDraftAction,
     initialState
   );
   const [confirmChecked, setConfirmChecked] = useState(false);
@@ -175,6 +182,31 @@ export function AssessmentPanel({
           </form>
         )}
       </div>
+
+      {!isConfirmed && gmailDraftAvailable && (
+        <div className="mt-4">
+          <form action={gmailAction}>
+            <input type="hidden" name="caseId" value={caseId} />
+            {gmailState && "error" in gmailState && (
+              <p className="mb-2 text-sm text-red-400">{gmailState.error}</p>
+            )}
+            {gmailState && "success" in gmailState && (
+              <p className="mb-2 text-sm text-emerald-400">{gmailState.success}</p>
+            )}
+            <button
+              type="submit"
+              disabled={gmailPending}
+              className="rounded-md border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {gmailPending ? "Creating draft..." : "Create this as a Gmail draft"}
+            </button>
+            <p className="mt-2 text-xs text-zinc-500">
+              Saves this text as an unsent draft in your Gmail — you add who it&apos;s going to
+              and hit send yourself. Planal never sends it for you.
+            </p>
+          </form>
+        </div>
+      )}
 
       {!isConfirmed && (
         <div className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/5 p-4">

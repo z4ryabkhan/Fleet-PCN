@@ -8,14 +8,23 @@ The full spec — vision, product definition, monetisation, compliance, data mod
 phased roadmap, and working rules — lives in [`PLANAL_MASTER_PLAN.md`](./PLANAL_MASTER_PLAN.md).
 That file is the source of truth; this README just orients you inside the repo.
 
-## Status: Phase 0 done, Phase 1 in progress
+## Status: Phases 0–8 done, Phase 9 in progress
 
-Live: the Phase 0 validation landing page (problem statement, fleet pricing hypothesis,
-waitlist form), and Phase 1 auth — email/password + magic link sign-in, with the
-individual/fleet account-type split at signup (a fleet signup gets an organisation and admin
-membership created automatically; an individual signup doesn't). See Part 8 of the master plan
-for the full roadmap. Still to come in Phase 1: nothing else planned — next up is Phase 2
-(vehicle add + ownership/authorisation verification, DVLA VES lookup).
+Built: the Phase 0 validation landing page; Phase 1 auth (org/individual split); Phase 2
+vehicle add + ownership/authorisation verification + DVLA VES lookup; Phase 3 manual ticket
+upload + OCR + case dashboard; Phase 4 deadline engine + email/SMS reminders; Phase 5 AI appeal
+assessment/drafting + evidence upload + human-confirm step; Phase 6/7 Gmail and Outlook OAuth
+connect/revoke **and** the actual inbox-scanning pipeline that turns a connected mailbox into
+cases (`supabase/functions/scan-mailboxes`, scheduled via pg_cron — see the Edge Function
+secrets section below, and that function's own header comment: it's unverified against live
+Gmail/Outlook/Anthropic traffic, test it against a real connected mailbox before relying on it);
+Phase 8 Stripe billing (fleet subscription + per-vehicle + per-case, individual per-case).
+Phase 9 (compliance pass) is partial: audit-log gaps fixed, a 90-day retention job for raw OCR
+JSON, a DPIA first draft, and a special-category (medical/breakdown evidence) consent flow are
+done; a retention window for case/evidence data more generally is still an open policy decision
+(see `docs/DPIA.md` §2.6), and the DPIA/privacy policy/ToS still need a solicitor review before
+any real (non-test) user data flows. See Part 8 of the master plan for the full roadmap — Phase
+10 (beta polish, QA, deploy, first real pilot) is next.
 
 ## Stack
 
@@ -52,14 +61,16 @@ Open [http://localhost:3000](http://localhost:3000).
 Signup confirmation and magic-link emails need to link to `/auth/confirm?token_hash=...&type=...`
 (handled by `src/app/auth/confirm/route.ts`), not Supabase's default `{{ .ConfirmationURL }}`
 link. In the Supabase dashboard, under Authentication → Email Templates, update the
-**Confirm signup** and **Magic Link** templates' link to:
+**Confirm signup**, **Magic Link**, and **Invite user** templates' link to:
 
 ```
 {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email
 ```
 
-(use `type=magiclink` for the Magic Link template). Until this is set, confirmation/magic-link
-emails will use Supabase's own hosted verify page instead of this route.
+(use `type=magiclink` for the Magic Link template, `type=invite` for Invite user). Until this is
+set, confirmation/magic-link/invite emails will use Supabase's own hosted verify page instead of
+this route. Team invites (`/dashboard/team`, fleet admins only) send through the Invite user
+template via `admin.inviteUserByEmail` — see migration `0024_team_invites.sql`.
 
 ### Supabase's shared SMTP has a low rate limit
 
@@ -72,6 +83,28 @@ checklist for transactional email.
 Note this project's "Confirm email" setting is currently **off** — `signUp()` returns an active
 session immediately, no email click required. The signup action already handles both cases (it
 checks whether a session came back), so this is safe to turn on later without a code change.
+
+### Edge Function secrets are separate from the app's env vars
+
+`supabase/functions/send-reminders` and `supabase/functions/scan-mailboxes` run on Supabase's
+own infrastructure, not Vercel — setting `ANTHROPIC_API_KEY`, `GOOGLE_OAUTH_CLIENT_ID` etc. in
+Vercel (or `.env.local`) does **not** make them available to these functions. Set them
+separately with the Supabase CLI:
+
+```bash
+supabase secrets set \
+  ANTHROPIC_API_KEY=... \
+  GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=... \
+  MS_OAUTH_CLIENT_ID=... MS_OAUTH_CLIENT_SECRET=... \
+  ENCRYPTION_KEY_FOR_OAUTH_TOKENS=... \
+  RESEND_API_KEY=... TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=... \
+  --project-ref znjbothwzjiaabqlnlhn
+```
+
+Until a given key is set, the function it belongs to runs as a no-op for whatever depends on it
+(logged, not failed) rather than erroring — same "inert without the key" pattern the app itself
+uses. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically and don't need
+setting.
 
 ## Working rules
 

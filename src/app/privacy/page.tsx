@@ -63,18 +63,23 @@ export default function PrivacyPage() {
       <p className="mt-2">
         Connecting Gmail or Outlook is optional — manual photo/PDF upload always works instead.
         If you connect an inbox, we request read-only access (Gmail: <code>gmail.readonly</code>;
-        Microsoft: <code>Mail.Read</code>), scoped to detecting PCN-related mail. Access tokens
-        are encrypted at rest and never stored in plain text. You can revoke access at any time
-        from your account settings — this immediately deletes the stored tokens.
+        Microsoft: <code>Mail.Read</code>), scoped to detecting PCN-related mail. For Gmail, we
+        also request <code>gmail.compose</code> — this only lets Planal create a draft email in
+        your own Gmail account (the AI-drafted appeal, when you ask for it); it cannot read,
+        modify, delete, or send anything on your behalf, and Planal never sends a draft it
+        creates — you review it and send it yourself, in Gmail. Access tokens are encrypted at
+        rest and never stored in plain text. You can revoke access at any time from your account
+        settings — this immediately deletes the stored tokens.
       </p>
 
       <h3 className="mt-4 font-medium text-zinc-200">Evidence you upload</h3>
       <p className="mt-2">
         Photos or documents you attach to a case as evidence — receipts, permits, a Blue Badge,
-        breakdown documentation, or similar. If you upload something evidencing a medical or
-        breakdown-related mitigating circumstance, be aware this may include health information;
-        we store it the same way as any other evidence file, used only to support your own
-        appeal, and only because you chose to provide it.
+        breakdown documentation, or similar. If a file you&apos;re uploading includes health or
+        medical information (for example, to support a medical mitigating-circumstances appeal),
+        you&apos;ll be asked to flag this and give explicit consent to us processing it, before
+        the upload completes. We only use it to support your own appeal, and only because you
+        chose to provide it.
       </p>
 
       <h3 className="mt-4 font-medium text-zinc-200">AI appeal assessment</h3>

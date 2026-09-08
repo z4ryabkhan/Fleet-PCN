@@ -27,7 +27,12 @@ type Reminder = {
   scheduled_for: string;
 };
 
-type Recipient = { email: string | null; phone: string | null; full_name: string | null };
+type Recipient = {
+  email: string | null;
+  phone: string | null;
+  full_name: string | null;
+  sms_reminders_enabled: boolean;
+};
 
 function formatMessage(
   deadlineType: "discount" | "final",
@@ -133,14 +138,14 @@ Deno.serve(async (req: Request) => {
     if (vehicle.owner_type === "individual" && vehicle.owner_user_id) {
       const { data } = await supabase
         .from("users")
-        .select("email, phone, full_name")
+        .select("email, phone, full_name, sms_reminders_enabled")
         .eq("id", vehicle.owner_user_id)
         .returns<Recipient[]>();
       recipients = data ?? [];
     } else if (vehicle.owner_type === "organisation" && vehicle.owner_organisation_id) {
       const { data } = await supabase
         .from("memberships")
-        .select("users(email, phone, full_name)")
+        .select("users(email, phone, full_name, sms_reminders_enabled)")
         .eq("organisation_id", vehicle.owner_organisation_id)
         .eq("role", "admin")
         .returns<{ users: Recipient }[]>();
@@ -181,7 +186,10 @@ Deno.serve(async (req: Request) => {
           skipped++;
           continue;
         }
-        const targets = recipients.filter((r) => r.phone);
+        // sms_reminders_enabled (0026) is an explicit opt-in, separate
+        // from just having a phone number on file — SMS costs money to
+        // send (Twilio), so having a number isn't itself consent.
+        const targets = recipients.filter((r) => r.phone && r.sms_reminders_enabled);
         if (targets.length === 0) {
           skipped++;
           continue;

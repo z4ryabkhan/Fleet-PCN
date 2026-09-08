@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizeVrm } from "@/lib/vrm";
 import { lookupVehicleVes } from "@/lib/dvla";
+import { syncFleetVehicleCountBilling } from "@/lib/billing";
 
 export type VehicleActionState = { error: string } | { success: string } | undefined;
 
@@ -162,8 +164,43 @@ export async function importFleetVehiclesCsvAction(
     await applyVesLookup(supabase, v.id, v.vrm);
   }
 
+  await syncFleetVehicleCountBilling(getSupabaseAdminClient(), organisationId);
+
   revalidatePath("/dashboard/vehicles");
   return { success: `Imported ${inserted?.length ?? 0} vehicle(s).` };
+}
+
+// Authorization is the existing "owners and org admins can update their
+// vehicles" RLS policy (0005) — an admin can already update any column on
+// their org's vehicles, this is nothing new there. What IS new here:
+// enforce_assigned_driver_is_org_member() (0025) rejects the update at
+// the database level if driverUserId isn't actually a member of the
+// vehicle's organisation — this action doesn't need to (and shouldn't)
+// duplicate that check, just surface the DB's rejection as a friendly
+// error if it happens.
+export async function assignVehicleDriverAction(
+  _prevState: VehicleActionState,
+  formData: FormData
+): Promise<VehicleActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const vehicleId = String(formData.get("vehicleId") || "");
+  const driverUserId = String(formData.get("driverUserId") || "");
+
+  const { error } = await supabase
+    .from("vehicles")
+    .update({ assigned_driver_user_id: driverUserId || null })
+    .eq("id", vehicleId);
+
+  if (error) return { error: "Could not update the assigned driver. Please try again." };
+
+  revalidatePath("/dashboard/vehicles");
+  revalidatePath("/dashboard/cases");
+  return { success: "Driver updated." };
 }
 
 // Companies House lookup isn't wired yet (no API key) — company_number is
