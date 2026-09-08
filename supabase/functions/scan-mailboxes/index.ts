@@ -9,6 +9,20 @@
 // token and this function checks it directly, since pg_net's caller isn't
 // a Supabase Auth JWT the platform gateway would otherwise verify.
 //
+// Reads a PDF/photo attachment when a message has one supported (same
+// mime types the manual-upload OCR path accepts — application/pdf,
+// image/jpeg|png|webp|gif), passing it to Claude alongside the body text
+// and saving it as case evidence exactly like a manual upload would.
+// Added because the original version shipped body-text-only, and a real
+// council/private-operator PCN notice commonly arrives as a near-empty
+// email with the actual notice as an attached PDF — that pattern wasn't
+// just unextracted before this, it was filtered out before extraction
+// ever ran, since the keyword pre-filter only looked at subject/snippet
+// text. Both providers' filters now also let a message through solely
+// because it has a supported attachment, whatever its subject says.
+// Not yet verified against a real such email (no live mailbox connected
+// to this project yet) — worth an early check once one is.
+//
 // UNVERIFIED AGAINST LIVE GMAIL/OUTLOOK DATA. Written to the documented
 // Gmail API (developers.google.com/gmail/api) and Microsoft Graph
 // (learn.microsoft.com/graph/api/user-list-messages) request/response
@@ -115,6 +129,18 @@ const EXTRACTION_TOOL = {
     required: ["isPcn", "vrm", "issuerName", "issuerType", "referenceNumber", "contraventionCode", "contraventionDescription", "locationText", "eventDatetime", "noticeDate", "amountFull", "amountDiscounted", "discountDeadline", "finalDeadline"],
   },
 };
+
+// Same mime types src/lib/ocr.ts accepts for a manual upload.
+const SUPPORTED_ATTACHMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+type CandidateAttachment = { filename: string; mimeType: string; base64Data: string };
+type Candidate = { messageId: string; subject: string; bodyText: string; attachment: CandidateAttachment | null };
 
 type Extraction = {
   isPcn: boolean;
@@ -254,7 +280,8 @@ function stripHtml(html: string): string {
 
 type GmailPayload = {
   mimeType?: string;
-  body?: { data?: string };
+  filename?: string;
+  body?: { data?: string; attachmentId?: string };
   parts?: GmailPayload[];
 };
 
@@ -271,10 +298,40 @@ function extractGmailBodyText(payload: GmailPayload | undefined): string {
   return "";
 }
 
-async function fetchGmailCandidates(
-  accessToken: string,
-  sinceIso: string
-): Promise<{ messageId: string; subject: string; bodyText: string }[]> {
+/** First attachment part in a supported mime type, if any — mirrors the
+ * OCR path's "one file per case" assumption; a PCN email realistically
+ * carries at most one notice attachment. */
+function findGmailAttachment(payload: GmailPayload | undefined): { filename: string; mimeType: string; attachmentId: string } | null {
+  if (!payload) return null;
+  if (
+    payload.filename &&
+    payload.body?.attachmentId &&
+    payload.mimeType &&
+    SUPPORTED_ATTACHMENT_MIME_TYPES.has(payload.mimeType)
+  ) {
+    return { filename: payload.filename, mimeType: payload.mimeType, attachmentId: payload.body.attachmentId };
+  }
+  for (const part of payload.parts ?? []) {
+    const found = findGmailAttachment(part);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function fetchGmailAttachmentData(accessToken: string, messageId: string, attachmentId: string): Promise<string> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error(`Gmail attachment fetch failed: ${res.status} ${await res.text()}`);
+  const body = await res.json();
+  // Gmail attachment bytes are base64url, same as message body parts —
+  // convert to standard base64 for the Claude API and for Supabase
+  // Storage upload later.
+  return (body.data as string).replace(/-/g, "+").replace(/_/g, "/");
+}
+
+async function fetchGmailCandidates(accessToken: string, sinceIso: string): Promise<Candidate[]> {
   const afterEpochSeconds = Math.floor(new Date(sinceIso).getTime() / 1000);
   const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
   listUrl.searchParams.set("q", `in:inbox after:${afterEpochSeconds}`);
@@ -284,7 +341,7 @@ async function fetchGmailCandidates(
   if (!listRes.ok) throw new Error(`Gmail list failed: ${listRes.status} ${await listRes.text()}`);
   const { messages } = await listRes.json();
 
-  const candidates: { messageId: string; subject: string; bodyText: string }[] = [];
+  const candidates: Candidate[] = [];
   for (const { id } of messages ?? []) {
     const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -292,9 +349,28 @@ async function fetchGmailCandidates(
     if (!msgRes.ok) continue;
     const msg = await msgRes.json();
     const subject: string = (msg.payload?.headers ?? []).find((h: { name: string }) => h.name === "Subject")?.value ?? "";
+    const attachmentRef = findGmailAttachment(msg.payload);
     const haystack = `${subject} ${msg.snippet ?? ""}`.toLowerCase();
-    if (!KEYWORDS.some((k) => haystack.includes(k))) continue;
-    candidates.push({ messageId: id, subject, bodyText: extractGmailBodyText(msg.payload) || msg.snippet || "" });
+    // A supported attachment lets a message through regardless of
+    // subject/snippet wording — a scanned notice PDF with a generic
+    // "Your document" subject has no keyword to match on in the text at
+    // all, and would otherwise never reach extraction.
+    if (!attachmentRef && !KEYWORDS.some((k) => haystack.includes(k))) continue;
+
+    let attachment: CandidateAttachment | null = null;
+    if (attachmentRef) {
+      try {
+        attachment = {
+          filename: attachmentRef.filename,
+          mimeType: attachmentRef.mimeType,
+          base64Data: await fetchGmailAttachmentData(accessToken, id, attachmentRef.attachmentId),
+        };
+      } catch (err) {
+        console.error(`Failed to fetch Gmail attachment for message ${id}`, err);
+      }
+    }
+
+    candidates.push({ messageId: id, subject, bodyText: extractGmailBodyText(msg.payload) || msg.snippet || "", attachment });
   }
   return candidates;
 }
@@ -321,36 +397,89 @@ async function refreshMicrosoftAccessToken(refreshToken: string): Promise<{ acce
   return { accessToken: json.access_token, expiresIn: json.expires_in, refreshToken: json.refresh_token };
 }
 
-async function fetchOutlookCandidates(
-  accessToken: string,
-  sinceIso: string
-): Promise<{ messageId: string; subject: string; bodyText: string }[]> {
+async function fetchOutlookAttachment(accessToken: string, messageId: string): Promise<CandidateAttachment | null> {
+  const res = await fetch(`https://graph.microsoft.com/v1.0/me/messages/${messageId}/attachments`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Graph attachments fetch failed: ${res.status} ${await res.text()}`);
+  const { value } = (await res.json()) as {
+    value?: { "@odata.type"?: string; name: string; contentType: string; contentBytes?: string }[];
+  };
+  const match = (value ?? []).find(
+    (a) =>
+      (a["@odata.type"] === "#microsoft.graph.fileAttachment" || !a["@odata.type"]) &&
+      a.contentBytes &&
+      SUPPORTED_ATTACHMENT_MIME_TYPES.has(a.contentType)
+  );
+  if (!match || !match.contentBytes) return null;
+  // Graph file attachments are already standard base64 — no url-safe
+  // conversion needed, unlike Gmail's.
+  return { filename: match.name, mimeType: match.contentType, base64Data: match.contentBytes };
+}
+
+async function fetchOutlookCandidates(accessToken: string, sinceIso: string): Promise<Candidate[]> {
   const url = new URL("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages");
   url.searchParams.set("$filter", `receivedDateTime ge ${sinceIso}`);
-  url.searchParams.set("$select", "subject,bodyPreview,body");
+  url.searchParams.set("$select", "subject,bodyPreview,body,hasAttachments");
   url.searchParams.set("$top", String(MESSAGES_PER_CONNECTION_LIMIT));
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new Error(`Graph list failed: ${res.status} ${await res.text()}`);
   const { value } = (await res.json()) as {
-    value?: { id: string; subject?: string; bodyPreview?: string; body?: { contentType?: string; content?: string } }[];
+    value?: {
+      id: string;
+      subject?: string;
+      bodyPreview?: string;
+      body?: { contentType?: string; content?: string };
+      hasAttachments?: boolean;
+    }[];
   };
 
-  const candidates: { messageId: string; subject: string; bodyText: string }[] = [];
+  const candidates: Candidate[] = [];
   for (const msg of value ?? []) {
     const haystack = `${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`.toLowerCase();
-    if (!KEYWORDS.some((k) => haystack.includes(k))) continue;
-    const bodyText = msg.body?.contentType === "html" ? stripHtml(msg.body.content) : msg.body?.content ?? msg.bodyPreview ?? "";
-    candidates.push({ messageId: msg.id, subject: msg.subject ?? "", bodyText });
+    // Same reasoning as the Gmail path: hasAttachments alone is enough to
+    // warrant a look, regardless of subject/preview wording.
+    if (!msg.hasAttachments && !KEYWORDS.some((k) => haystack.includes(k))) continue;
+
+    let attachment: CandidateAttachment | null = null;
+    if (msg.hasAttachments) {
+      try {
+        attachment = await fetchOutlookAttachment(accessToken, msg.id);
+      } catch (err) {
+        console.error(`Failed to fetch Outlook attachment for message ${msg.id}`, err);
+      }
+    }
+
+    const bodyText = msg.body?.contentType === "html" ? stripHtml(msg.body.content ?? "") : (msg.body?.content ?? msg.bodyPreview ?? "");
+    candidates.push({ messageId: msg.id, subject: msg.subject ?? "", bodyText, attachment });
   }
   return candidates;
 }
 
 // --- Claude extraction
 
-async function extractPcnFromEmailText(subject: string, bodyText: string): Promise<Extraction | null> {
+async function extractPcnFromEmailText(
+  subject: string,
+  bodyText: string,
+  attachment: CandidateAttachment | null
+): Promise<Extraction | null> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return null;
+
+  const textBlock = {
+    type: "text",
+    text: `Subject: ${subject}\n\nBody:\n${bodyText.slice(0, 12000)}\n\nUse the tool to record what this email says about a UK parking/traffic penalty notice, or report isPcn: false if it isn't genuinely about one. Never guess or invent a value — use null for anything not actually stated. Never calculate a deadline yourself; only fill discountDeadline/finalDeadline if a specific date is explicitly written in the email or its attachment.`,
+  };
+
+  // A supported attachment (the actual notice, when the email body is
+  // near-empty) goes to Claude the same way a manual OCR upload does —
+  // as a document/image block alongside the text, not a separate call.
+  const attachmentBlock = attachment
+    ? attachment.mimeType === "application/pdf"
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: attachment.base64Data } }
+      : { type: "image", source: { type: "base64", media_type: attachment.mimeType, data: attachment.base64Data } }
+    : null;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -367,7 +496,7 @@ async function extractPcnFromEmailText(subject: string, bodyText: string): Promi
       messages: [
         {
           role: "user",
-          content: `Subject: ${subject}\n\nBody:\n${bodyText.slice(0, 12000)}\n\nUse the tool to record what this email says about a UK parking/traffic penalty notice, or report isPcn: false if it isn't genuinely about one. Never guess or invent a value — use null for anything not actually stated. Never calculate a deadline yourself; only fill discountDeadline/finalDeadline if a specific date is explicitly written in the email.`,
+          content: attachmentBlock ? [textBlock, attachmentBlock] : [textBlock],
         },
       ],
     }),
@@ -524,7 +653,7 @@ Deno.serve(async (req: Request) => {
 
       for (const candidate of candidates) {
         scanned++;
-        const extraction = await extractPcnFromEmailText(candidate.subject, candidate.bodyText);
+        const extraction = await extractPcnFromEmailText(candidate.subject, candidate.bodyText, candidate.attachment);
         if (!extraction || !extraction.isPcn) continue;
 
         const vehicleId = extraction.vrm ? vehicleByVrm.get(normalizeVrm(extraction.vrm)) : undefined;
@@ -537,29 +666,62 @@ Deno.serve(async (req: Request) => {
 
         const computed = computeDeadlines(extraction.issuerType, extraction.noticeDate);
 
-        const { error: insertError } = await supabase.from("cases").insert({
-          vehicle_id: vehicleId,
-          source: "email_auto",
-          source_message_id: candidate.messageId,
-          status: "reviewing",
-          issuer_name: extraction.issuerName,
-          issuer_type: extraction.issuerType,
-          reference_number: extraction.referenceNumber,
-          contravention_code: extraction.contraventionCode,
-          contravention_description: extraction.contraventionDescription,
-          location_text: extraction.locationText,
-          event_datetime: extraction.eventDatetime,
-          notice_date: extraction.noticeDate,
-          amount_full: extraction.amountFull,
-          amount_discounted: extraction.amountDiscounted,
-          discount_deadline: extraction.discountDeadline ?? computed?.discountDeadline ?? null,
-          final_deadline: extraction.finalDeadline ?? computed?.finalDeadline ?? null,
-          raw_ocr_json: extraction,
-          created_by: conn.created_by,
-        });
+        const { data: caseRow, error: insertError } = await supabase
+          .from("cases")
+          .insert({
+            vehicle_id: vehicleId,
+            source: "email_auto",
+            source_message_id: candidate.messageId,
+            status: "reviewing",
+            issuer_name: extraction.issuerName,
+            issuer_type: extraction.issuerType,
+            reference_number: extraction.referenceNumber,
+            contravention_code: extraction.contraventionCode,
+            contravention_description: extraction.contraventionDescription,
+            location_text: extraction.locationText,
+            event_datetime: extraction.eventDatetime,
+            notice_date: extraction.noticeDate,
+            amount_full: extraction.amountFull,
+            amount_discounted: extraction.amountDiscounted,
+            discount_deadline: extraction.discountDeadline ?? computed?.discountDeadline ?? null,
+            final_deadline: extraction.finalDeadline ?? computed?.finalDeadline ?? null,
+            raw_ocr_json: extraction,
+            created_by: conn.created_by,
+          })
+          .select("id")
+          .single();
 
-        if (!insertError) {
+        if (!insertError && caseRow) {
           casesCreated++;
+
+          if (candidate.attachment) {
+            // Same evidence bucket/path convention as a manual upload
+            // (src/app/dashboard/cases/actions.ts) — "{vehicleId}/{ts}-{filename}"
+            // — so it shows up identically on the case's Evidence tab.
+            try {
+              const path = `${vehicleId}/${Date.now()}-${candidate.attachment.filename}`;
+              const bytes = Uint8Array.from(atob(candidate.attachment.base64Data), (c) => c.charCodeAt(0));
+              const { error: uploadError } = await supabase.storage
+                .from("case-evidence")
+                .upload(path, bytes, { contentType: candidate.attachment.mimeType });
+              if (!uploadError) {
+                await supabase.from("evidence").insert({
+                  case_id: caseRow.id,
+                  file_ref: path,
+                  evidence_type: candidate.attachment.mimeType === "application/pdf" ? "ticket_pdf" : "ticket_photo",
+                  uploaded_by: conn.created_by,
+                });
+              } else {
+                console.error(`Failed to upload evidence for message ${candidate.messageId}`, uploadError);
+              }
+            } catch (err) {
+              // Evidence is a bonus on top of an already-created case —
+              // never let a storage/decoding failure here look like the
+              // whole scan failed.
+              console.error(`Failed to save evidence for message ${candidate.messageId}`, err);
+            }
+          }
+
           await notifyNewCase(
             supabase,
             resendKey,
@@ -568,7 +730,7 @@ Deno.serve(async (req: Request) => {
             extraction.vrm!,
             extraction.issuerName
           );
-        } else if (!insertError.message.includes("cases_source_message_id_unique")) {
+        } else if (insertError && !insertError.message.includes("cases_source_message_id_unique")) {
           // A real failure (e.g. verification not passed) — log and move
           // on rather than losing the rest of the batch.
           console.error(`Case insert failed for message ${candidate.messageId}`, insertError);
