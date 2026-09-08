@@ -6,6 +6,7 @@ import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
 import { MarkPaidButton } from "@/components/cases/MarkPaidButton";
+import { formatCaseSummary } from "@/lib/case-summary";
 
 export const metadata = { title: "Case — Planal" };
 
@@ -29,7 +30,7 @@ export default async function CaseDetailPage({
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -90,6 +91,20 @@ export default async function CaseDetailPage({
           </Link>
         </div>
 
+        <p className="mt-4 text-lg text-zinc-100">
+          {formatCaseSummary({
+            status: caseRow.status,
+            issuerName: caseRow.issuer_name,
+            amountFull: caseRow.amount_full,
+            amountDiscounted: caseRow.amount_discounted,
+            discountDeadline: caseRow.discount_deadline,
+            finalDeadline: caseRow.final_deadline,
+            contraventionDescription: caseRow.contravention_description,
+            contraventionCode: caseRow.contravention_code,
+            paidAt: caseRow.paid_at,
+          })}
+        </p>
+
         <div className="mt-6 grid gap-4 rounded-xl border border-white/10 p-6 sm:grid-cols-2">
           <div>
             <p className="text-sm text-zinc-400">Issuer</p>
@@ -100,8 +115,13 @@ export default async function CaseDetailPage({
             <p className="mt-1">{caseRow.reference_number ?? "—"}</p>
           </div>
           <div>
-            <p className="text-sm text-zinc-400">Contravention code</p>
-            <p className="mt-1">{caseRow.contravention_code ?? "—"}</p>
+            <p className="text-sm text-zinc-400">Contravention</p>
+            <p className="mt-1">
+              {caseRow.contravention_description ?? "—"}
+              {caseRow.contravention_code && (
+                <span className="text-zinc-500"> (code {caseRow.contravention_code})</span>
+              )}
+            </p>
           </div>
           <div>
             <p className="text-sm text-zinc-400">Location</p>

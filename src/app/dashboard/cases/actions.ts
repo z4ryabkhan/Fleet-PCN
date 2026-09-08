@@ -77,6 +77,7 @@ export async function addManualCaseAction(
         issuer_type: extraction.issuerType,
         reference_number: extraction.referenceNumber,
         contravention_code: extraction.contraventionCode,
+        contravention_description: extraction.contraventionDescription,
         location_text: extraction.locationText,
         event_datetime: extraction.eventDatetime,
         notice_date: extraction.noticeDate,

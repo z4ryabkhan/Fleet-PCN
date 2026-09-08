@@ -96,6 +96,10 @@ const EXTRACTION_TOOL = {
       issuerType: { type: ["string", "null"], enum: [...ISSUER_TYPES, null] },
       referenceNumber: { type: ["string", "null"] },
       contraventionCode: { type: ["string", "null"] },
+      contraventionDescription: {
+        type: ["string", "null"],
+        description: "The human-readable reason as actually written in the email, separate from the code — leave null if only a code is stated.",
+      },
       locationText: { type: ["string", "null"] },
       eventDatetime: { type: ["string", "null"], description: "ISO 8601 datetime the contravention occurred, if stated." },
       noticeDate: {
@@ -108,7 +112,7 @@ const EXTRACTION_TOOL = {
       discountDeadline: { type: ["string", "null"], description: "ISO 8601 date, only if explicitly stated." },
       finalDeadline: { type: ["string", "null"], description: "ISO 8601 date, only if explicitly stated." },
     },
-    required: ["isPcn", "vrm", "issuerName", "issuerType", "referenceNumber", "contraventionCode", "locationText", "eventDatetime", "noticeDate", "amountFull", "amountDiscounted", "discountDeadline", "finalDeadline"],
+    required: ["isPcn", "vrm", "issuerName", "issuerType", "referenceNumber", "contraventionCode", "contraventionDescription", "locationText", "eventDatetime", "noticeDate", "amountFull", "amountDiscounted", "discountDeadline", "finalDeadline"],
   },
 };
 
@@ -119,6 +123,7 @@ type Extraction = {
   issuerType: (typeof ISSUER_TYPES)[number] | null;
   referenceNumber: string | null;
   contraventionCode: string | null;
+  contraventionDescription: string | null;
   locationText: string | null;
   eventDatetime: string | null;
   noticeDate: string | null;
@@ -479,6 +484,7 @@ Deno.serve(async (req: Request) => {
           issuer_type: extraction.issuerType,
           reference_number: extraction.referenceNumber,
           contravention_code: extraction.contraventionCode,
+          contravention_description: extraction.contraventionDescription,
           location_text: extraction.locationText,
           event_datetime: extraction.eventDatetime,
           notice_date: extraction.noticeDate,
