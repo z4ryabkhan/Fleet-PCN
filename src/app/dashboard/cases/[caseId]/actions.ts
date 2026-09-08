@@ -6,6 +6,9 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { ensureAccountProvisioned } from "@/lib/account";
 import { assessAppeal } from "@/lib/appeal";
+import { decryptToken, encryptToken } from "@/lib/crypto";
+import { refreshGoogleAccessToken, GMAIL_COMPOSE_SCOPE } from "@/lib/google-oauth";
+import { createGmailAppealDraft } from "@/lib/gmail-drafts";
 import {
   getOrCreateBillingAccount,
   createIndividualCaseCheckoutSession,
@@ -192,6 +195,96 @@ export async function saveDraftEditAction(
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: "Draft saved." };
+}
+
+// Pushes the current appeal draft into the user's own Gmail as a real,
+// unsent draft — added per Zaryab's explicit request (2026-09-08). Still
+// never auto-submits anything (Part 9 rule 2): src/lib/gmail-drafts.ts
+// only ever calls drafts.create, and the recipient is left blank since
+// Planal has no reliable directory of per-issuer appeal email addresses
+// (and many UK appeals go through a web portal, not email, at all) —
+// the user fills in who it's actually going to themselves, in Gmail,
+// before sending. Individual accounts only for now, matching how this
+// was asked for; fleet accounts don't get this button yet.
+export async function createGmailDraftAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select("issuer_name, reference_number, vehicles(vrm)")
+    .eq("id", caseId)
+    .single();
+  if (!caseRow) return { error: "Case not found." };
+
+  const { data: appeal } = await supabase
+    .from("appeals")
+    .select("draft_text, user_edited_text")
+    .eq("case_id", caseId)
+    .maybeSingle();
+
+  const bodyText = appeal?.user_edited_text ?? appeal?.draft_text;
+  if (!bodyText) return { error: "Assess the case and get a draft first." };
+
+  const { data: connection } = await supabase
+    .from("email_connections")
+    .select("id, encrypted_access_token, encrypted_refresh_token, token_expires_at, scopes")
+    .eq("owner_type", "individual")
+    .eq("owner_user_id", user.id)
+    .eq("provider", "gmail")
+    .eq("status", "connected")
+    .maybeSingle();
+
+  if (!connection) {
+    return { error: "Connect Gmail first, from the Connected email page." };
+  }
+  if (!connection.scopes?.includes(GMAIL_COMPOSE_SCOPE)) {
+    return {
+      error:
+        "Your Gmail connection needs to be renewed to allow creating drafts — revoke it and reconnect from the Connected email page.",
+    };
+  }
+
+  let accessToken = decryptToken(connection.encrypted_access_token);
+  if (new Date(connection.token_expires_at).getTime() - Date.now() < 5 * 60_000) {
+    try {
+      const refreshToken = decryptToken(connection.encrypted_refresh_token);
+      const refreshed = await refreshGoogleAccessToken(refreshToken);
+      accessToken = refreshed.accessToken;
+      await supabase
+        .from("email_connections")
+        .update({
+          encrypted_access_token: encryptToken(refreshed.accessToken),
+          token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+        })
+        .eq("id", connection.id);
+    } catch (err) {
+      console.error("Failed to refresh Google access token", err);
+      return { error: "Your Gmail connection has expired. Please reconnect it." };
+    }
+  }
+
+  const vehicle = caseRow.vehicles as unknown as { vrm: string } | null;
+  const subject = `PCN appeal — ${vehicle?.vrm ?? ""} — ${caseRow.issuer_name ?? "issuer"}${
+    caseRow.reference_number ? ` — ref ${caseRow.reference_number}` : ""
+  }`;
+
+  const draft = await createGmailAppealDraft(accessToken, { subject, bodyText });
+  if (!draft) {
+    return { error: "Could not create the Gmail draft. Please try again." };
+  }
+
+  await supabase.rpc("log_gmail_draft_created", { p_case_id: caseId });
+
+  return { success: "Draft created in your Gmail — check your Drafts folder, add the recipient, and send when you're ready." };
 }
 
 // This marks the case "appealed" in Planal only — Part 9 rule 2: never

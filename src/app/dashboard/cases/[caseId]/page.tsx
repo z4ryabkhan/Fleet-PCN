@@ -38,29 +38,47 @@ export default async function CaseDetailPage({
 
   const vehicle = caseRow.vehicles as unknown as { vrm: string } | null;
 
-  const [{ data: evidence }, { data: appeal }, { data: paidCharge }] = await Promise.all([
-    supabase
-      .from("evidence")
-      .select("id, evidence_type, file_ref, uploaded_at")
-      .eq("case_id", caseId)
-      .order("uploaded_at", { ascending: false }),
-    supabase
-      .from("appeals")
-      .select(
-        "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome"
-      )
-      .eq("case_id", caseId)
-      .maybeSingle(),
-    organisation
-      ? Promise.resolve({ data: null })
-      : supabase
-          .from("case_charges")
-          .select("id")
-          .eq("case_id", caseId)
-          .eq("charge_type", "individual_per_case")
-          .eq("status", "paid")
-          .maybeSingle(),
-  ]);
+  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }] =
+    await Promise.all([
+      supabase
+        .from("evidence")
+        .select("id, evidence_type, file_ref, uploaded_at")
+        .eq("case_id", caseId)
+        .order("uploaded_at", { ascending: false }),
+      supabase
+        .from("appeals")
+        .select(
+          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome"
+        )
+        .eq("case_id", caseId)
+        .maybeSingle(),
+      organisation
+        ? Promise.resolve({ data: null })
+        : supabase
+            .from("case_charges")
+            .select("id")
+            .eq("case_id", caseId)
+            .eq("charge_type", "individual_per_case")
+            .eq("status", "paid")
+            .maybeSingle(),
+      // Gmail draft creation (AssessmentPanel's "Create this as a Gmail
+      // draft" button) is individual-only for now — see
+      // createGmailDraftAction's own comment for why.
+      organisation
+        ? Promise.resolve({ data: null })
+        : supabase
+            .from("email_connections")
+            .select("scopes")
+            .eq("owner_type", "individual")
+            .eq("owner_user_id", user.id)
+            .eq("provider", "gmail")
+            .eq("status", "connected")
+            .maybeSingle(),
+    ]);
+
+  const gmailDraftAvailable = Boolean(
+    gmailConnection?.scopes?.includes("https://www.googleapis.com/auth/gmail.compose")
+  );
 
   return (
     <main className="min-h-full bg-zinc-950 px-6 py-16 text-white">
@@ -127,6 +145,7 @@ export default async function CaseDetailPage({
             disclaimer={mandatoryDisclaimer(appeal?.ai_strength_rating ?? "weak", caseRow.issuer_type)}
             requiresPayment={!organisation}
             isPaid={Boolean(paidCharge)}
+            gmailDraftAvailable={gmailDraftAvailable}
           />
         </div>
 

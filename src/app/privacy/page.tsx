@@ -63,9 +63,13 @@ export default function PrivacyPage() {
       <p className="mt-2">
         Connecting Gmail or Outlook is optional — manual photo/PDF upload always works instead.
         If you connect an inbox, we request read-only access (Gmail: <code>gmail.readonly</code>;
-        Microsoft: <code>Mail.Read</code>), scoped to detecting PCN-related mail. Access tokens
-        are encrypted at rest and never stored in plain text. You can revoke access at any time
-        from your account settings — this immediately deletes the stored tokens.
+        Microsoft: <code>Mail.Read</code>), scoped to detecting PCN-related mail. For Gmail, we
+        also request <code>gmail.compose</code> — this only lets Planal create a draft email in
+        your own Gmail account (the AI-drafted appeal, when you ask for it); it cannot read,
+        modify, delete, or send anything on your behalf, and Planal never sends a draft it
+        creates — you review it and send it yourself, in Gmail. Access tokens are encrypted at
+        rest and never stored in plain text. You can revoke access at any time from your account
+        settings — this immediately deletes the stored tokens.
       </p>
 
       <h3 className="mt-4 font-medium text-zinc-200">Evidence you upload</h3>
