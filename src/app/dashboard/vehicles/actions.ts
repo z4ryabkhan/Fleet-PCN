@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizeVrm } from "@/lib/vrm";
 import { lookupVehicleVes } from "@/lib/dvla";
+import { syncFleetVehicleCountBilling } from "@/lib/billing";
 
 export type VehicleActionState = { error: string } | { success: string } | undefined;
 
@@ -161,6 +163,8 @@ export async function importFleetVehiclesCsvAction(
   for (const v of inserted ?? []) {
     await applyVesLookup(supabase, v.id, v.vrm);
   }
+
+  await syncFleetVehicleCountBilling(getSupabaseAdminClient(), organisationId);
 
   revalidatePath("/dashboard/vehicles");
   return { success: `Imported ${inserted?.length ?? 0} vehicle(s).` };

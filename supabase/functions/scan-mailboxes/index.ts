@@ -247,8 +247,13 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-// deno-lint-ignore no-explicit-any
-function extractGmailBodyText(payload: any): string {
+type GmailPayload = {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPayload[];
+};
+
+function extractGmailBodyText(payload: GmailPayload | undefined): string {
   if (!payload) return "";
   if (payload.body?.data && (payload.mimeType === "text/plain" || payload.mimeType === "text/html")) {
     const text = decodeBase64Url(payload.body.data);
@@ -322,11 +327,12 @@ async function fetchOutlookCandidates(
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) throw new Error(`Graph list failed: ${res.status} ${await res.text()}`);
-  const { value } = await res.json();
+  const { value } = (await res.json()) as {
+    value?: { id: string; subject?: string; bodyPreview?: string; body?: { contentType?: string; content?: string } }[];
+  };
 
   const candidates: { messageId: string; subject: string; bodyText: string }[] = [];
-  // deno-lint-ignore no-explicit-any
-  for (const msg of value ?? ([] as any[])) {
+  for (const msg of value ?? []) {
     const haystack = `${msg.subject ?? ""} ${msg.bodyPreview ?? ""}`.toLowerCase();
     if (!KEYWORDS.some((k) => haystack.includes(k))) continue;
     const bodyText = msg.body?.contentType === "html" ? stripHtml(msg.body.content) : msg.body?.content ?? msg.bodyPreview ?? "";
