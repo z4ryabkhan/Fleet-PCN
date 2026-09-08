@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState, useActionState } from "react";
 import { addEvidenceAction, type CaseDetailActionState } from "@/app/dashboard/cases/[caseId]/actions";
 
 const initialState: CaseDetailActionState = undefined;
 
 export function EvidenceForm({ caseId, vehicleId }: { caseId: string; vehicleId: string }) {
   const [state, formAction, pending] = useActionState(addEvidenceAction, initialState);
+  const [mayContainSpecialCategoryData, setMayContainSpecialCategoryData] = useState(false);
 
   return (
     <form action={formAction} className="space-y-3 rounded-xl border border-white/10 p-6">
@@ -39,6 +40,27 @@ export function EvidenceForm({ caseId, vehicleId }: { caseId: string; vehicleId:
         accept="application/pdf,image/*"
         className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-white/20"
       />
+
+      <label className="flex items-start gap-2 text-sm text-zinc-400">
+        <input
+          type="checkbox"
+          name="mayContainSpecialCategoryData"
+          value="true"
+          checked={mayContainSpecialCategoryData}
+          onChange={(e) => setMayContainSpecialCategoryData(e.target.checked)}
+          className="mt-0.5"
+        />
+        This file may include health or medical information (e.g. supporting a medical
+        mitigating-circumstances appeal)
+      </label>
+
+      {mayContainSpecialCategoryData && (
+        <label className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-200">
+          <input type="checkbox" name="specialCategoryConsent" value="true" required className="mt-0.5" />
+          I consent to Planal processing this health information, for the sole purpose of
+          supporting my own appeal.
+        </label>
+      )}
 
       {state && "error" in state && <p className="text-sm text-red-400">{state.error}</p>}
       {state && "success" in state && <p className="text-sm text-emerald-400">{state.success}</p>}

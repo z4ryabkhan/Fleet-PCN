@@ -237,12 +237,20 @@ export async function addEvidenceAction(
   const vehicleId = String(formData.get("vehicleId") || "");
   const evidenceType = String(formData.get("evidenceType") || "");
   const file = formData.get("file") as File | null;
+  const mayContainSpecialCategoryData = formData.get("mayContainSpecialCategoryData") === "true";
+  const specialCategoryConsent = formData.get("specialCategoryConsent") === "true";
 
   if (!["receipt", "permit", "blue_badge", "breakdown_doc", "other"].includes(evidenceType)) {
     return { error: "Please choose an evidence type." };
   }
   if (!file || file.size === 0) return { error: "Please choose a file." };
   if (file.size > 10 * 1024 * 1024) return { error: "File is too large (max 10MB)." };
+  // DPIA §2.2/§3: health information disclosed as mitigating-circumstances
+  // evidence is special-category data — explicit consent (Article 9(2)(a))
+  // is required in the same step, and the DB constraint backs this up.
+  if (mayContainSpecialCategoryData && !specialCategoryConsent) {
+    return { error: "Please confirm consent to processing this health information." };
+  }
 
   const path = `${vehicleId}/${Date.now()}-${file.name}`;
   const { error: uploadError } = await supabase.storage.from("case-evidence").upload(path, file);
@@ -253,6 +261,8 @@ export async function addEvidenceAction(
     file_ref: path,
     evidence_type: evidenceType,
     uploaded_by: user.id,
+    may_contain_special_category_data: mayContainSpecialCategoryData,
+    special_category_consent_at: mayContainSpecialCategoryData ? new Date().toISOString() : null,
   });
   if (insertError) return { error: "Could not save the evidence record." };
 
