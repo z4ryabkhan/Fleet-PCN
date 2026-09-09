@@ -1,26 +1,23 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Planal is a fixed dark theme throughout (bg-zinc-950 etc., set directly
+ * via Tailwind classes on <body>/<main> per page) — there's no light mode
+ * to switch to. This file used to carry create-next-app's default
+ * light/dark CSS-variable background, left over unremoved; it was never
+ * referenced by anything, but being plain unlayered CSS after the
+ * Tailwind import, it silently outranked the *utility* classes in
+ * Tailwind's layered cascade and set <body>'s real background to white
+ * regardless — invisible on pages whose own <main> paints a full dark
+ * background over it, but it broke every page that doesn't (privacy,
+ * terms), rendering white-on-white/near-invisible text. Removed rather
+ * than fixed in place, since the app was never using it for anything.
+ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
