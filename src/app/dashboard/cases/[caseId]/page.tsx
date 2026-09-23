@@ -172,6 +172,15 @@ export default async function CaseDetailPage({
         )}
 
         <div className="mt-6">
+          <a
+            href={`/api/cases/${caseId}/pdf-pack`}
+            className="block rounded-2xl border border-planal-border bg-planal-surface p-4 text-center text-sm font-medium text-planal-brand-dark hover:bg-planal-brand-tint"
+          >
+            Download PDF pack — for issuers who only take post
+          </a>
+        </div>
+
+        <div className="mt-6">
           <AssessmentPanel
             caseId={caseId}
             appeal={appeal}
