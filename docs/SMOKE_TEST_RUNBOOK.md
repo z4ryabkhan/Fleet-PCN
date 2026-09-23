@@ -6,13 +6,24 @@ the right vehicle — the core "we react in minutes, not weeks" claim the
 whole product is built around (Part 1.1). Do this before onboarding any
 real fleet pilot.
 
-**Current state, verified directly against the live Supabase project as
-of this writing:** the `scan-mailboxes` Edge Function is deployed, its
-15-minute cron job is active, and a manual invocation returns a clean
-`200` (`{"connectionsScanned":0,"messagesScanned":0,"casesCreated":0,"failed":0}`
-— zero because no mailbox is connected yet, not because anything's
-broken). So the plumbing works; nobody has actually tested it against a
-real inbox yet. That's what this runbook is for.
+**Current state, verified end to end against the live Supabase project:**
+a real Gmail and a real Outlook mailbox were connected, a test PCN email
+was sent to both, and the scan created a correctly extracted case from
+each — issuer, reference number, amounts, and both deadlines all matched
+the source email exactly. This runbook's procedure is what produced that
+result; follow it the same way for any further testing.
+
+**One real bug found and fixed in the process, worth knowing about:**
+`normalizeVrm` (both the copy in `src/lib/vrm.ts` and the duplicate in
+`scan-mailboxes/index.ts`) used to collapse whitespace in a VRM rather
+than strip it entirely. A vehicle stored as `VU13BZO` never matched an
+extracted VRM of `VU13 BZO` — and Claude's extraction reliably returns UK
+plates with the conventional space, regardless of how the source email
+wrote it. This silently zeroed out `casesCreated` with no error anywhere
+(exactly the "looks identical to nothing to find" failure mode called out
+below) until fixed to strip whitespace entirely. Fixed and redeployed as
+of this testing; if VRM matching ever silently stops working again, check
+here first.
 
 One function handles both Gmail and Outlook (branching internally on
 each connection's `provider` column) — you don't deploy or trigger
