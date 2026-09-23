@@ -184,8 +184,13 @@ function computeDeadlines(issuerType: string | null, noticeDate: string | null) 
   return { discountDeadline: addDays(noticeDate, rule.discountDays), finalDeadline: addDays(noticeDate, rule.finalDays) };
 }
 
+// Must stay byte-for-byte equivalent to src/lib/vrm.ts's normalizeVrm —
+// two copies since this runs in Deno, not the Next.js app. Strips
+// whitespace entirely rather than collapsing it: plates are conventionally
+// written with a space ("AB12 CDE") in correspondence but commonly
+// stored/typed without one, and this is what lets the two match.
 function normalizeVrm(input: string): string {
-  return input.trim().toUpperCase().replace(/\s+/g, " ");
+  return input.trim().toUpperCase().replace(/\s+/g, "");
 }
 
 // --- Token encryption, Deno/Web Crypto side. Must stay byte-for-byte
