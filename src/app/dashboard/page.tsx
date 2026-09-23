@@ -2,122 +2,99 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
-import { signOutAction } from "./actions";
+import { TicketCaptureForm } from "@/components/cases/TicketCaptureForm";
+import { DeadlineChip } from "@/components/ui/DeadlineChip";
+import { BottomNav } from "@/components/ui/BottomNav";
 
-export const metadata = { title: "Dashboard — Planal" };
+export const metadata = { title: "Planal" };
 
-export default async function DashboardPage() {
+type CaseCard = {
+  id: string;
+  issuer_name: string | null;
+  amount_full: number | null;
+  final_deadline: string | null;
+  status: string;
+  vehicles: { vrm: string } | null;
+};
+
+export default async function DashboardHomePage() {
   const supabase = await getSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-  if (!user) {
-    redirect("/login");
-  }
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
 
-  const { profile, organisation } = await ensureAccountProvisioned(supabase, user);
+  const vehicleQuery = organisation
+    ? supabase.from("vehicles").select("id, vrm").eq("owner_organisation_id", organisation.id)
+    : supabase.from("vehicles").select("id, vrm").eq("owner_user_id", user.id);
+
+  const [{ data: vehicles }, { data: cases }] = await Promise.all([
+    vehicleQuery.order("vrm"),
+    supabase
+      .from("cases")
+      .select("id, issuer_name, amount_full, final_deadline, status, vehicles(vrm)")
+      .order("final_deadline", { ascending: true, nullsFirst: false })
+      .limit(20)
+      .returns<CaseCard[]>(),
+  ]);
 
   return (
-    <main className="min-h-full bg-zinc-950 px-6 py-16 text-white">
-      <div className="mx-auto max-w-2xl">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">
-            Welcome{profile?.full_name ? `, ${profile.full_name}` : ""}
-          </h1>
-          <form action={signOutAction}>
-            <button
-              type="submit"
-              className="rounded-md border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5"
-            >
-              Sign out
-            </button>
-          </form>
+    <main className="min-h-full bg-planal-bg pb-28 text-planal-ink">
+      <div className="mx-auto max-w-md px-5 pt-10">
+        <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold">Planal</h1>
+        <p className="mt-1 text-sm text-planal-ink-muted">
+          {organisation ? organisation.name : "Snap it, we'll handle the rest."}
+        </p>
+
+        <div className="mt-6">
+          <TicketCaptureForm vehicles={vehicles ?? []} />
         </div>
 
-        <div className="mt-8 rounded-xl border border-white/10 p-6">
-          <p className="text-sm text-zinc-400">Account type</p>
-          <p className="mt-1 text-lg font-medium capitalize">
-            {profile?.account_type ?? "unknown"}
-          </p>
+        <div className="mt-9">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-planal-ink-muted">
+            Your cases
+          </h2>
 
-          {organisation && (
-            <>
-              <p className="mt-4 text-sm text-zinc-400">Organisation</p>
-              <p className="mt-1 text-lg font-medium">{organisation.name}</p>
-              <p className="mt-1 text-sm text-zinc-500 capitalize">Role: {organisation.role}</p>
-            </>
+          {!cases || cases.length === 0 ? (
+            <p className="mt-4 rounded-2xl border border-dashed border-planal-border p-6 text-center text-sm text-planal-ink-muted">
+              No tickets yet — photograph one above to get started.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {cases.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/dashboard/cases/${c.id}`}
+                    className="block rounded-2xl border border-planal-border bg-planal-surface p-4 hover:border-planal-brand"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{c.vehicles?.vrm ?? "Vehicle"}</p>
+                        <p className="mt-0.5 truncate text-sm text-planal-ink-muted">
+                          {c.issuer_name ?? "Reading the ticket…"}
+                        </p>
+                      </div>
+                      <p className="shrink-0 font-[family-name:var(--font-display)] text-lg font-bold">
+                        {c.amount_full != null ? `£${c.amount_full}` : "—"}
+                      </p>
+                    </div>
+                    <div className="mt-3">
+                      <DeadlineChip
+                        deadline={c.final_deadline}
+                        settled={["paid", "closed"].includes(c.status)}
+                      />
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-
-        <Link
-          href="/dashboard/vehicles"
-          className="mt-8 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-        >
-          <p className="text-lg font-medium">Vehicles &rarr;</p>
-          <p className="mt-1 text-sm text-zinc-400">
-            {organisation ? "Verify your fleet and add vehicles." : "Add a vehicle and verify ownership."}
-          </p>
-        </Link>
-
-        <Link
-          href="/dashboard/cases"
-          className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-        >
-          <p className="text-lg font-medium">Cases &rarr;</p>
-          <p className="mt-1 text-sm text-zinc-400">
-            Upload a ticket, get an AI appeal assessment, and track deadlines.
-          </p>
-        </Link>
-
-        <Link
-          href="/dashboard/email"
-          className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-        >
-          <p className="text-lg font-medium">Connected email &rarr;</p>
-          <p className="mt-1 text-sm text-zinc-400">
-            Connect your inbox so Planal can catch PCN emails automatically.
-          </p>
-        </Link>
-
-        <Link
-          href="/dashboard/settings"
-          className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-        >
-          <p className="text-lg font-medium">Settings &rarr;</p>
-          <p className="mt-1 text-sm text-zinc-400">Your name, phone number, and reminder preferences.</p>
-        </Link>
-
-        {organisation && organisation.role === "admin" && (
-          <>
-            <Link
-              href="/dashboard/team"
-              className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-            >
-              <p className="text-lg font-medium">Team &rarr;</p>
-              <p className="mt-1 text-sm text-zinc-400">Invite admins and drivers to your fleet.</p>
-            </Link>
-
-            <Link
-              href="/dashboard/reporting"
-              className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-            >
-              <p className="text-lg font-medium">Reporting &rarr;</p>
-              <p className="mt-1 text-sm text-zinc-400">
-                Monthly summary: tickets caught, value managed, deadlines hit.
-              </p>
-            </Link>
-
-            <Link
-              href="/dashboard/billing"
-              className="mt-4 block rounded-xl border border-white/10 p-6 hover:bg-white/5"
-            >
-              <p className="text-lg font-medium">Billing &rarr;</p>
-              <p className="mt-1 text-sm text-zinc-400">Manage your fleet subscription.</p>
-            </Link>
-          </>
-        )}
       </div>
+
+      <BottomNav active="cases" />
     </main>
   );
 }

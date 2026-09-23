@@ -10,9 +10,9 @@ export default async function LoginPage({
   const { next } = await searchParams;
 
   return (
-    <main className="flex min-h-full items-center justify-center bg-zinc-950 px-6 py-16 text-white">
+    <main className="flex min-h-full items-center justify-center bg-planal-bg px-6 py-16 text-planal-ink">
       <div className="w-full max-w-md">
-        <h1 className="text-center text-2xl font-semibold">Log in</h1>
+        <h1 className="text-center font-[family-name:var(--font-display)] text-2xl font-bold">Log in</h1>
         <div className="mt-8">
           <LoginForm next={next} />
         </div>

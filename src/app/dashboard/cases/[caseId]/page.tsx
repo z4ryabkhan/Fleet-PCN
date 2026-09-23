@@ -6,6 +6,7 @@ import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
 import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
+import { CaseTimeline } from "@/components/cases/CaseTimeline";
 import { formatCaseSummary } from "@/lib/case-summary";
 import { formatAuditAction } from "@/lib/audit-log";
 
@@ -44,7 +45,7 @@ export default async function CaseDetailPage({
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -74,7 +75,7 @@ export default async function CaseDetailPage({
       supabase
         .from("appeals")
         .select(
-          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome"
+          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at"
         )
         .eq("case_id", caseId)
         .maybeSingle(),
@@ -113,16 +114,18 @@ export default async function CaseDetailPage({
   );
 
   return (
-    <main className="min-h-full bg-zinc-950 px-6 py-16 text-white">
-      <div className="mx-auto max-w-3xl">
+    <main className="min-h-full bg-planal-bg px-5 py-10 pb-28 text-planal-ink">
+      <div className="mx-auto max-w-md">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">{vehicle?.vrm ?? "Case"}</h1>
-          <Link href="/dashboard/cases" className="text-sm text-zinc-400 hover:text-white">
+          <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold">
+            {vehicle?.vrm ?? "Case"}
+          </h1>
+          <Link href="/dashboard/cases" className="text-sm text-planal-ink-muted hover:text-planal-ink">
             &larr; Cases
           </Link>
         </div>
 
-        <p className="mt-4 text-lg text-zinc-100">
+        <p className="mt-4 text-[15px] text-planal-ink">
           {formatCaseSummary({
             status: caseRow.status,
             issuerName: caseRow.issuer_name,
@@ -135,6 +138,15 @@ export default async function CaseDetailPage({
             paidAt: caseRow.paid_at,
           })}
         </p>
+
+        <div className="mt-6 rounded-2xl border border-planal-border bg-planal-surface p-5">
+          <CaseTimeline
+            uploadedAt={caseRow.created_at}
+            detailsConfirmedAt={caseRow.details_confirmed_at}
+            appealReadyAt={appeal?.created_at ?? null}
+            sentAt={appeal?.user_confirmed_at ?? null}
+          />
+        </div>
 
         <CaseDetailsCard
           caseId={caseId}
@@ -154,12 +166,21 @@ export default async function CaseDetailPage({
         />
 
         {paid === "0" && (
-          <p className="mt-4 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-zinc-300">
+          <p className="mt-4 rounded-xl border border-planal-border bg-planal-surface p-3 text-sm text-planal-ink">
             Checkout cancelled — no charge was made.
           </p>
         )}
 
-        <div className="mt-8">
+        <div className="mt-6">
+          <a
+            href={`/api/cases/${caseId}/pdf-pack`}
+            className="block rounded-2xl border border-planal-border bg-planal-surface p-4 text-center text-sm font-medium text-planal-brand-dark hover:bg-planal-brand-tint"
+          >
+            Download PDF pack — for issuers who only take post
+          </a>
+        </div>
+
+        <div className="mt-6">
           <AssessmentPanel
             caseId={caseId}
             appeal={appeal}
@@ -170,22 +191,26 @@ export default async function CaseDetailPage({
           />
         </div>
 
-        <div className="mt-8">
+        <div className="mt-6">
           <EvidenceForm caseId={caseId} vehicleId={caseRow.vehicle_id} />
 
           <div className="mt-4">
-            <h2 className="text-lg font-medium">Evidence on file</h2>
+            <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">
+              Evidence on file
+            </h2>
             {!evidence || evidence.length === 0 ? (
-              <p className="mt-2 text-sm text-zinc-500">No evidence uploaded yet.</p>
+              <p className="mt-2 text-sm text-planal-ink-muted">No evidence uploaded yet.</p>
             ) : (
               <ul className="mt-2 space-y-2">
                 {evidence.map((e) => (
                   <li
                     key={e.id}
-                    className="flex items-center justify-between rounded-md border border-white/10 px-4 py-2 text-sm"
+                    className="flex items-center justify-between rounded-xl border border-planal-border bg-planal-surface px-4 py-2 text-sm"
                   >
-                    <span className="capitalize text-zinc-300">{e.evidence_type.replace(/_/g, " ")}</span>
-                    <span className="text-zinc-500">{new Date(e.uploaded_at).toLocaleDateString("en-GB")}</span>
+                    <span className="capitalize text-planal-ink">{e.evidence_type.replace(/_/g, " ")}</span>
+                    <span className="text-planal-ink-muted">
+                      {new Date(e.uploaded_at).toLocaleDateString("en-GB")}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -193,29 +218,29 @@ export default async function CaseDetailPage({
           </div>
         </div>
 
-        <div className="mt-8">
-          <h2 className="text-lg font-medium">Activity log</h2>
-          <p className="mt-1 text-sm text-zinc-500">
+        <div className="mt-6">
+          <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">Activity log</h2>
+          <p className="mt-1 text-sm text-planal-ink-muted">
             Every access to this case, with who and when — required under UK GDPR for the
             location/time data a PCN carries.
           </p>
           {!auditLog || auditLog.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-500">No activity recorded yet.</p>
+            <p className="mt-2 text-sm text-planal-ink-muted">No activity recorded yet.</p>
           ) : (
             <ul className="mt-2 space-y-2">
               {auditLog.map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex items-center justify-between rounded-md border border-white/10 px-4 py-2 text-sm"
+                  className="flex items-center justify-between rounded-xl border border-planal-border bg-planal-surface px-4 py-2 text-sm"
                 >
-                  <span className="text-zinc-300">
+                  <span className="text-planal-ink">
                     {formatAuditAction(entry.action)}
-                    <span className="text-zinc-500">
+                    <span className="text-planal-ink-muted">
                       {" "}
                       &middot; {entry.users?.full_name ?? entry.users?.email ?? "Unknown user"}
                     </span>
                   </span>
-                  <span className="text-zinc-500">
+                  <span className="text-planal-ink-muted">
                     {new Date(entry.created_at).toLocaleString("en-GB")}
                   </span>
                 </li>

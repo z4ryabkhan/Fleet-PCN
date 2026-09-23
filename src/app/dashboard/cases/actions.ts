@@ -1,11 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { extractPcnFromFile } from "@/lib/ocr";
 import { computeDeadlines } from "@/lib/deadlines";
 
-export type CaseActionState = { error: string } | { success: string } | undefined;
+export type CaseActionState = { error: string } | undefined;
 
 export async function addManualCaseAction(
   _prevState: CaseActionState,
@@ -91,10 +91,8 @@ export async function addManualCaseAction(
       .eq("id", caseRow.id);
   }
 
-  revalidatePath("/dashboard/cases");
-  return {
-    success: extraction
-      ? "Ticket added and details extracted — review below."
-      : "Ticket added. Automatic extraction isn't available yet, so add the details manually.",
-  };
+  // Confirm Details is the next stop regardless of whether extraction
+  // succeeded — an unextracted ticket just lands there with everything
+  // blank to fill in by hand, rather than a dead end back on the list.
+  redirect(`/dashboard/cases/${caseRow.id}/confirm`);
 }

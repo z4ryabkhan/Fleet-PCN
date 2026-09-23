@@ -19,7 +19,13 @@ const ISSUER_TYPES = [
   "moving_traffic",
 ] as const;
 
+const FieldConfidence = z.enum(["high", "low"]);
+
 const PcnExtractionSchema = z.object({
+  vrm: z
+    .string()
+    .nullable()
+    .describe("UK vehicle registration mark as printed on the notice, if legible."),
   issuerName: z.string().nullable(),
   issuerType: z.enum(ISSUER_TYPES).nullable(),
   referenceNumber: z.string().nullable(),
@@ -56,11 +62,30 @@ const PcnExtractionSchema = z.object({
     .string()
     .nullable()
     .describe("ISO 8601 date (YYYY-MM-DD), only if a specific deadline date is explicitly printed on the notice"),
+  fieldConfidence: z
+    .object({
+      vrm: FieldConfidence,
+      issuerName: FieldConfidence,
+      referenceNumber: FieldConfidence,
+      contraventionCode: FieldConfidence,
+      contraventionDescription: FieldConfidence,
+      locationText: FieldConfidence,
+      eventDatetime: FieldConfidence,
+      noticeDate: FieldConfidence,
+      amountFull: FieldConfidence,
+      amountDiscounted: FieldConfidence,
+    })
+    .describe(
+      "For each field above, 'high' if you read it directly and clearly off the document, " +
+        "'low' if it's smudged, partially obscured, ambiguous, or you had to infer it rather " +
+        "than read it outright. A null-valued field should still get a rating (use 'low') — " +
+        "this drives a 'please check' flag shown to the user, not just a data value."
+    ),
 });
 
 export type PcnExtraction = z.infer<typeof PcnExtractionSchema>;
 
-const PROMPT = `This is a photo or PDF of a UK parking or traffic penalty notice (PCN). Extract the fields defined by the schema. Use null for any field that isn't legible or isn't present on the document — never guess or invent a value, and never calculate a deadline yourself: only fill discountDeadline/finalDeadline if a specific date is explicitly printed on the notice, not if you'd have to work it out from other dates. eventDatetime (when the contravention happened) and noticeDate (when the notice was issued/served) are usually different dates — extract each separately from wherever it actually appears on the document, don't assume they're the same. contraventionDescription is the reason wording as actually printed (separate from contraventionCode, the DfT code number) — leave it null if the notice only states a code with no wording. Amounts are in GBP as plain numbers (e.g. 70, not "£70"). Dates are ISO 8601.`;
+const PROMPT = `This is a photo or PDF of a UK parking or traffic penalty notice (PCN). Extract the fields defined by the schema. Use null for any field that isn't legible or isn't present on the document — never guess or invent a value, and never calculate a deadline yourself: only fill discountDeadline/finalDeadline if a specific date is explicitly printed on the notice, not if you'd have to work it out from other dates. eventDatetime (when the contravention happened) and noticeDate (when the notice was issued/served) are usually different dates — extract each separately from wherever it actually appears on the document, don't assume they're the same. contraventionDescription is the reason wording as actually printed (separate from contraventionCode, the DfT code number) — leave it null if the notice only states a code with no wording. Amounts are in GBP as plain numbers (e.g. 70, not "£70"). Dates are ISO 8601. vrm is the vehicle registration mark exactly as printed, whatever spacing the notice itself uses. For every field in fieldConfidence, rate 'low' honestly whenever the source is a phone photo with glare, a wet or folded windscreen slip, small print, or handwriting — don't default to 'high' out of politeness; the user relies on this to know what to double-check before sending anything.`;
 
 export async function extractPcnFromFile(
   fileBuffer: Buffer,
