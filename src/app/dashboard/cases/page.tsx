@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
-import { AddCaseForm } from "@/components/cases/AddCaseForm";
+import { TicketCaptureForm } from "@/components/cases/TicketCaptureForm";
 
 export const metadata = { title: "Cases — Planal" };
 
@@ -65,7 +65,7 @@ export default async function CasesPage() {
         </div>
 
         <div className="mt-8">
-          <AddCaseForm vehicles={vehicles ?? []} />
+          <TicketCaptureForm vehicles={vehicles ?? []} />
         </div>
 
         <div className="mt-10">
