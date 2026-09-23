@@ -10,9 +10,11 @@ export function EvidenceForm({ caseId, vehicleId }: { caseId: string; vehicleId:
   const [mayContainSpecialCategoryData, setMayContainSpecialCategoryData] = useState(false);
 
   return (
-    <form action={formAction} className="space-y-3 rounded-xl border border-white/10 p-6">
-      <h2 className="text-lg font-medium">Add evidence</h2>
-      <p className="text-sm text-zinc-400">Photos, receipts, permits, Blue Badge, breakdown documents.</p>
+    <form action={formAction} className="space-y-3 rounded-2xl border border-planal-border bg-planal-surface p-5">
+      <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">Add evidence</h2>
+      <p className="text-sm text-planal-ink-muted">
+        Photos, receipts, permits, Blue Badge, breakdown documents.
+      </p>
 
       <input type="hidden" name="caseId" value={caseId} />
       <input type="hidden" name="vehicleId" value={vehicleId} />
@@ -21,7 +23,7 @@ export function EvidenceForm({ caseId, vehicleId }: { caseId: string; vehicleId:
         name="evidenceType"
         required
         defaultValue=""
-        className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
+        className="w-full rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5 text-planal-ink focus:border-planal-brand focus:outline-none focus:ring-2 focus:ring-planal-brand-tint"
       >
         <option value="" disabled>
           Evidence type
@@ -38,37 +40,37 @@ export function EvidenceForm({ caseId, vehicleId }: { caseId: string; vehicleId:
         type="file"
         required
         accept="application/pdf,image/*"
-        className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-white/20"
+        className="w-full text-sm text-planal-ink-muted file:mr-3 file:rounded-lg file:border-0 file:bg-planal-brand-tint file:px-3 file:py-2 file:text-sm file:font-medium file:text-planal-brand-dark hover:file:bg-planal-brand-tint-2"
       />
 
-      <label className="flex items-start gap-2 text-sm text-zinc-400">
+      <label className="flex items-start gap-2 text-sm text-planal-ink-muted">
         <input
           type="checkbox"
           name="mayContainSpecialCategoryData"
           value="true"
           checked={mayContainSpecialCategoryData}
           onChange={(e) => setMayContainSpecialCategoryData(e.target.checked)}
-          className="mt-0.5"
+          className="mt-0.5 h-4 w-4 rounded border-planal-border"
         />
         This file may include health or medical information (e.g. supporting a medical
         mitigating-circumstances appeal)
       </label>
 
       {mayContainSpecialCategoryData && (
-        <label className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-200">
-          <input type="checkbox" name="specialCategoryConsent" value="true" required className="mt-0.5" />
+        <label className="flex items-start gap-2 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-3 text-sm text-planal-amber-text">
+          <input type="checkbox" name="specialCategoryConsent" value="true" required className="mt-0.5 h-4 w-4" />
           I consent to Planal processing this health information, for the sole purpose of
           supporting my own appeal.
         </label>
       )}
 
-      {state && "error" in state && <p className="text-sm text-red-400">{state.error}</p>}
-      {state && "success" in state && <p className="text-sm text-emerald-400">{state.success}</p>}
+      {state && "error" in state && <p className="text-sm text-planal-danger-text">{state.error}</p>}
+      {state && "success" in state && <p className="text-sm text-planal-brand-dark">{state.success}</p>}
 
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md border border-white/10 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-xl border border-planal-border px-4 py-2 text-sm text-planal-ink-muted hover:bg-planal-bg disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Uploading..." : "Add evidence"}
       </button>

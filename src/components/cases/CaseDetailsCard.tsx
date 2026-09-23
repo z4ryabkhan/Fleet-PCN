@@ -34,9 +34,9 @@ type CaseDetails = {
   status: string;
 };
 
-const FIELD = "text-sm text-zinc-400";
+const FIELD = "text-sm text-planal-ink-muted";
 const INPUT =
-  "mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none";
+  "mt-1 w-full rounded-xl border border-planal-border bg-planal-surface px-3 py-2 text-sm text-planal-ink focus:border-planal-brand focus:outline-none focus:ring-2 focus:ring-planal-brand-tint";
 
 export function CaseDetailsCard({ caseId, details }: { caseId: string; details: CaseDetails }) {
   const [state, formAction, pending] = useActionState(updateCaseDetailsAction, initialState);
@@ -56,14 +56,16 @@ export function CaseDetailsCard({ caseId, details }: { caseId: string; details: 
 
   if (editing) {
     return (
-      <form action={formAction} className="mt-6 space-y-4 rounded-xl border border-white/10 p-6">
+      <form action={formAction} className="mt-6 space-y-4 rounded-2xl border border-planal-border bg-planal-surface p-5">
         <input type="hidden" name="caseId" value={caseId} />
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium">Edit case details</h2>
+          <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">
+            Edit case details
+          </h2>
           <button
             type="button"
             onClick={() => setEditing(false)}
-            className="text-sm text-zinc-400 hover:text-white"
+            className="text-sm text-planal-ink-muted hover:text-planal-ink"
           >
             Cancel
           </button>
@@ -147,12 +149,12 @@ export function CaseDetailsCard({ caseId, details }: { caseId: string; details: 
           </label>
         </div>
 
-        {state && "error" in state && <p className="text-sm text-red-400">{state.error}</p>}
+        {state && "error" in state && <p className="text-sm text-planal-danger-text">{state.error}</p>}
 
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-emerald-500 px-4 py-2.5 font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-2xl bg-planal-brand px-4 py-2.5 font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pending ? "Saving..." : "Save details"}
         </button>
@@ -161,59 +163,59 @@ export function CaseDetailsCard({ caseId, details }: { caseId: string; details: 
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-white/10 p-6">
+    <div className="mt-6 rounded-2xl border border-planal-border bg-planal-surface p-5">
       <div className="flex items-center justify-between">
         <h2 className="sr-only">Case details</h2>
         <div />
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="text-sm text-zinc-400 hover:text-white"
+          className="text-sm text-planal-ink-muted hover:text-planal-ink"
         >
           Edit details
         </button>
       </div>
-      {state && "success" in state && <p className="mb-3 text-sm text-emerald-400">{state.success}</p>}
+      {state && "success" in state && <p className="mb-3 text-sm text-planal-brand-dark">{state.success}</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="text-sm text-zinc-400">Issuer</p>
+          <p className="text-sm text-planal-ink-muted">Issuer</p>
           <p className="mt-1">{details.issuer_name ?? "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Reference</p>
+          <p className="text-sm text-planal-ink-muted">Reference</p>
           <p className="mt-1">{details.reference_number ?? "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Contravention</p>
+          <p className="text-sm text-planal-ink-muted">Contravention</p>
           <p className="mt-1">
             {details.contravention_description ?? "—"}
             {details.contravention_code && (
-              <span className="text-zinc-500"> (code {details.contravention_code})</span>
+              <span className="text-planal-ink-muted"> (code {details.contravention_code})</span>
             )}
           </p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Location</p>
+          <p className="text-sm text-planal-ink-muted">Location</p>
           <p className="mt-1">{details.location_text ?? "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Full amount</p>
+          <p className="text-sm text-planal-ink-muted">Full amount</p>
           <p className="mt-1">{details.amount_full != null ? `£${details.amount_full}` : "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Discounted amount</p>
+          <p className="text-sm text-planal-ink-muted">Discounted amount</p>
           <p className="mt-1">{details.amount_discounted != null ? `£${details.amount_discounted}` : "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Discount deadline</p>
+          <p className="text-sm text-planal-ink-muted">Discount deadline</p>
           <p className="mt-1">{details.discount_deadline ?? "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Final deadline</p>
+          <p className="text-sm text-planal-ink-muted">Final deadline</p>
           <p className="mt-1">{details.final_deadline ?? "—"}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Status</p>
+          <p className="text-sm text-planal-ink-muted">Status</p>
           <p className="mt-1 capitalize">{details.status}</p>
           {!["paid", "closed"].includes(details.status) && <MarkPaidButton caseId={caseId} />}
         </div>
