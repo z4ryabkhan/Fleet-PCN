@@ -16,6 +16,8 @@ import {
   getOrCreateBillingAccount,
   createIndividualCaseCheckoutSession,
   addFleetPerCaseCharge,
+  chargeCaseOnWin,
+  waiveCaseCharge,
 } from "@/lib/billing";
 import { PRICE_INDIVIDUAL_PER_CASE, getStripeClient } from "@/lib/stripe";
 
@@ -302,18 +304,20 @@ export async function sendAppealAction(
   if (!to || !to.includes("@")) return { error: "Enter a valid recipient email address." };
 
   // UI review items 1/5: payment gates the send, not the assessment —
-  // fleets pay recurring (never gated here), individuals pay per case.
+  // fleets pay recurring (never gated here). No-win-no-fee (2026-09-24):
+  // individuals only need a card on file ('authorized') to send — they're
+  // not actually charged until/unless the appeal is later marked Won.
   const { organisation } = await ensureAccountProvisioned(supabase, user);
   if (!organisation) {
-    const { data: paidCharge } = await supabase
+    const { data: authorizedCharge } = await supabase
       .from("case_charges")
       .select("id")
       .eq("case_id", caseId)
       .eq("charge_type", "individual_per_case")
-      .eq("status", "paid")
+      .in("status", ["authorized", "paid"])
       .maybeSingle();
-    if (!paidCharge) {
-      return { error: "Pay to send this appeal first." };
+    if (!authorizedCharge) {
+      return { error: "Save a card to send this appeal first — you're only charged if you win." };
     }
   }
 
@@ -659,6 +663,12 @@ export async function addEvidenceAction(
   return { success: "Evidence added." };
 }
 
+// No-win-no-fee (2026-09-24): this is the one moment an individual is
+// ever actually charged. Won triggers the off-session charge against the
+// card saved at send time; Lost releases it, charging nothing. Fleets
+// never have an individual_per_case charge row to act on here (they pay
+// recurring instead), so chargeCaseOnWin/waiveCaseCharge just no-op for
+// them.
 export async function setOutcomeAction(
   _prevState: CaseDetailActionState,
   formData: FormData
@@ -677,6 +687,16 @@ export async function setOutcomeAction(
   if (error) return { error: "Could not save the outcome." };
 
   await supabase.from("cases").update({ status: "closed" }).eq("id", caseId);
+
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
+  if (!organisation) {
+    const admin = getSupabaseAdminClient();
+    if (outcome === "won") {
+      await chargeCaseOnWin(admin, caseId);
+    } else {
+      await waiveCaseCharge(admin, caseId);
+    }
+  }
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: "Outcome recorded." };

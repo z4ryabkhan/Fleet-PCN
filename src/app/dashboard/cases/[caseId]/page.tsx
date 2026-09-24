@@ -82,6 +82,9 @@ export default async function CaseDetailPage({
         )
         .eq("case_id", caseId)
         .maybeSingle(),
+      // No-win-no-fee (2026-09-24): 'authorized' means a card is on file
+      // and the individual can send — they're only actually 'paid' after
+      // the appeal is later marked Won.
       organisation
         ? Promise.resolve({ data: null })
         : supabase
@@ -89,7 +92,7 @@ export default async function CaseDetailPage({
             .select("id")
             .eq("case_id", caseId)
             .eq("charge_type", "individual_per_case")
-            .eq("status", "paid")
+            .in("status", ["authorized", "paid"])
             .maybeSingle(),
       // Gmail draft creation (AssessmentPanel's "Create this as a Gmail
       // draft" button) is individual-only for now — see

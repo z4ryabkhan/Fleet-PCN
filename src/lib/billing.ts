@@ -82,9 +82,15 @@ export async function createFleetSubscriptionCheckoutSession(
   return session.url;
 }
 
-/** Creates the Checkout Session and the matching 'pending' case_charges
- * row together, so the two can never drift out of sync (e.g. a session
- * created with no charge record to reconcile against later). */
+/** No-win-no-fee (Zaryab, 2026-09-24): this used to charge immediately in
+ * "payment" mode. It now runs Checkout in "setup" mode — saves a card
+ * against the customer without charging it — and records a 'pending'
+ * case_charges row that becomes 'authorized' once the SetupIntent
+ * completes (see the webhook / confirm-case-payment route). The amount
+ * is recorded now purely as the price that WILL be charged if the appeal
+ * is later marked Won; nothing is actually taken yet. Creates the
+ * Checkout Session and the matching case_charges row together, so the
+ * two can never drift out of sync. */
 export async function createIndividualCaseCheckoutSession(
   adminSupabase: SupabaseClient,
   customerId: string,
@@ -99,8 +105,8 @@ export async function createIndividualCaseCheckoutSession(
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
-    mode: "payment",
-    line_items: [{ price: PRICE_INDIVIDUAL_PER_CASE, quantity: 1 }],
+    mode: "setup",
+    payment_method_types: ["card"],
     success_url: successUrl,
     cancel_url: cancelUrl,
     metadata: { plana_case_id: caseId, plana_charge_type: "individual_per_case" },
@@ -110,11 +116,101 @@ export async function createIndividualCaseCheckoutSession(
     case_id: caseId,
     charge_type: "individual_per_case",
     stripe_checkout_session_id: session.id,
+    stripe_customer_id: customerId,
     amount_pence: price.unit_amount ?? 0,
     status: "pending",
   });
 
   return session.url;
+}
+
+/** Completes the no-win-no-fee authorization once Checkout's SetupIntent
+ * has succeeded — called from both the webhook and the success-redirect
+ * confirmation route, same belt-and-braces pattern as the old immediate-
+ * payment flow. Idempotent: only ever moves a 'pending' row to
+ * 'authorized', so it's safe if both paths fire for the same session. */
+export async function confirmIndividualCaseAuthorization(
+  adminSupabase: SupabaseClient,
+  checkoutSessionId: string,
+  paymentMethodId: string,
+  setupIntentId: string
+): Promise<void> {
+  await adminSupabase
+    .from("case_charges")
+    .update({
+      status: "authorized",
+      stripe_payment_method_id: paymentMethodId,
+      stripe_setup_intent_id: setupIntentId,
+    })
+    .eq("stripe_checkout_session_id", checkoutSessionId)
+    .eq("status", "pending");
+}
+
+/** The other half of no-win-no-fee: actually collects payment, but only
+ * once — when setOutcomeAction records a Won outcome. Charges the saved
+ * payment method off-session (the user isn't present for this). A
+ * declined/failed off-session charge is recorded as 'failed' rather than
+ * thrown — a card failure shouldn't block recording the case's actual
+ * outcome, and is a billing-recovery problem to chase separately, not a
+ * reason to make the win/loss record itself unreliable. */
+export async function chargeCaseOnWin(adminSupabase: SupabaseClient, caseId: string): Promise<void> {
+  const stripe = getStripeClient();
+  if (!stripe) return;
+
+  const { data: charge } = await adminSupabase
+    .from("case_charges")
+    .select("id, amount_pence, stripe_customer_id, stripe_payment_method_id")
+    .eq("case_id", caseId)
+    .eq("charge_type", "individual_per_case")
+    .eq("status", "authorized")
+    .maybeSingle();
+
+  if (!charge || !charge.stripe_customer_id || !charge.stripe_payment_method_id) return;
+
+  try {
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: charge.amount_pence,
+      currency: "gbp",
+      customer: charge.stripe_customer_id,
+      payment_method: charge.stripe_payment_method_id,
+      off_session: true,
+      confirm: true,
+    });
+    await adminSupabase
+      .from("case_charges")
+      .update({ status: "paid", stripe_payment_intent_id: paymentIntent.id })
+      .eq("id", charge.id);
+  } catch (err) {
+    console.error("No-win-no-fee charge-on-win failed", err);
+    await adminSupabase.from("case_charges").update({ status: "failed" }).eq("id", charge.id);
+  }
+}
+
+/** The Lost half of no-win-no-fee: releases the saved card without ever
+ * charging it. Detaches the payment method from Stripe too — there's no
+ * reason to keep holding a card we've now committed not to charge. */
+export async function waiveCaseCharge(adminSupabase: SupabaseClient, caseId: string): Promise<void> {
+  const stripe = getStripeClient();
+
+  const { data: charge } = await adminSupabase
+    .from("case_charges")
+    .select("id, stripe_payment_method_id")
+    .eq("case_id", caseId)
+    .eq("charge_type", "individual_per_case")
+    .eq("status", "authorized")
+    .maybeSingle();
+
+  if (!charge) return;
+
+  await adminSupabase.from("case_charges").update({ status: "waived" }).eq("id", charge.id);
+
+  if (stripe && charge.stripe_payment_method_id) {
+    try {
+      await stripe.paymentMethods.detach(charge.stripe_payment_method_id);
+    } catch (err) {
+      console.error("Failed to detach waived payment method", err);
+    }
+  }
 }
 
 /** UI review item 5: "price visible on the button" — reads the live Stripe

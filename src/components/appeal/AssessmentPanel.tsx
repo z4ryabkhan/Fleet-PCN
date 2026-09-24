@@ -167,7 +167,17 @@ export function AssessmentPanel({
         {appeal.outcome === "pending" ? (
           <form action={outcomeAction} className="mt-5 flex flex-wrap items-center gap-3">
             <input type="hidden" name="caseId" value={caseId} />
-            <p className="text-sm text-planal-ink-muted">Heard back?</p>
+            <p className="w-full text-sm text-planal-ink-muted">
+              Heard back?
+              {requiresPayment && appeal.send_method !== "manual" && (
+                <>
+                  {" "}
+                  No win, no fee: marking this <span className="font-medium">Won</span> charges
+                  the card you saved{priceLabel ? ` (${priceLabel})` : ""} — marking it{" "}
+                  <span className="font-medium">Lost</span> charges nothing.
+                </>
+              )}
+            </p>
             <button
               type="submit"
               name="outcome"
@@ -343,8 +353,8 @@ export function AssessmentPanel({
         (requiresPayment && !isPaid ? (
           <div className="mt-6 rounded-xl border border-planal-border bg-planal-bg p-4">
             <p className="text-base text-planal-ink">
-              Sends immediately from your own connected Gmail or Outlook, with any evidence
-              attached.
+              No win, no fee — save a card to send now. We only charge {priceLabel ?? "you"} if
+              this appeal wins; nothing is taken if it&apos;s rejected.
             </p>
             <form action={payAction} className="mt-3">
               <input type="hidden" name="caseId" value={caseId} />
@@ -354,7 +364,7 @@ export function AssessmentPanel({
                 </p>
               )}
               <button type="submit" disabled={payPending} className={`w-full ${PRIMARY_BTN}`}>
-                {payPending ? "Redirecting…" : `Pay ${priceLabel ?? "and"} & send`}
+                {payPending ? "Redirecting…" : "Save card & send"}
               </button>
             </form>
           </div>
