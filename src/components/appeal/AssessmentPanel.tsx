@@ -304,54 +304,38 @@ export function AssessmentPanel({
             )}
           </div>
 
-          {requiresPayment && !isPaid ? (
-            <div className="mt-4 rounded-xl border border-planal-border bg-planal-bg p-4">
-              <p className="text-base text-planal-ink">
-                Once you&apos;ve paid, come back here and confirm once you&apos;ve submitted it
-                yourself{issuerMatch.appeal_channel === "portal" ? " on their portal" : " by post"}.
-              </p>
-              <form action={payAction} className="mt-3">
-                <input type="hidden" name="caseId" value={caseId} />
-                {payState && "error" in payState && (
-                  <p className="mb-2 text-sm text-planal-danger-text" role="alert">
-                    {payState.error}
-                  </p>
-                )}
-                <button type="submit" disabled={payPending} className={`w-full ${PRIMARY_BTN}`}>
-                  {payPending ? "Redirecting…" : `Pay ${priceLabel ?? "and"} & continue`}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-xl border border-planal-border bg-planal-bg p-4">
-              <form action={manualAction} className="space-y-2">
-                <input type="hidden" name="caseId" value={caseId} />
-                <label className="flex min-h-11 items-center gap-2 text-sm text-planal-ink">
-                  <input
-                    type="checkbox"
-                    checked={manualConfirmChecked}
-                    onChange={(e) => setManualConfirmChecked(e.target.checked)}
-                    className="h-5 w-5 rounded border-planal-border focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand"
-                  />
-                  I&apos;ve submitted this appeal
-                  {issuerMatch.appeal_channel === "portal" ? " on their portal" : " by post"}
-                </label>
-                {manualState && "error" in manualState && (
-                  <p className="text-sm text-planal-danger-text" role="alert">
-                    {manualState.error}
-                  </p>
-                )}
-                <button
-                  type="submit"
-                  disabled={manualPending || !manualConfirmChecked}
-                  className={`w-full ${PRIMARY_BTN}`}
-                  aria-live="polite"
-                >
-                  {manualPending ? "Saving..." : "I've submitted this"}
-                </button>
-              </form>
-            </div>
-          )}
+          <div className="mt-4 rounded-xl border border-planal-border bg-planal-bg p-4">
+            <p className="text-sm text-planal-ink-muted">
+              Free — Planal drafted this for you, but can&apos;t submit it on your behalf here, so
+              there&apos;s no charge for this step.
+            </p>
+            <form action={manualAction} className="mt-3 space-y-2">
+              <input type="hidden" name="caseId" value={caseId} />
+              <label className="flex min-h-11 items-center gap-2 text-sm text-planal-ink">
+                <input
+                  type="checkbox"
+                  checked={manualConfirmChecked}
+                  onChange={(e) => setManualConfirmChecked(e.target.checked)}
+                  className="h-5 w-5 rounded border-planal-border focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand"
+                />
+                I&apos;ve submitted this appeal
+                {issuerMatch.appeal_channel === "portal" ? " on their portal" : " by post"}
+              </label>
+              {manualState && "error" in manualState && (
+                <p className="text-sm text-planal-danger-text" role="alert">
+                  {manualState.error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={manualPending || !manualConfirmChecked}
+                className={`w-full ${PRIMARY_BTN}`}
+                aria-live="polite"
+              >
+                {manualPending ? "Saving..." : "I've submitted this"}
+              </button>
+            </form>
+          </div>
         </>
       )}
 

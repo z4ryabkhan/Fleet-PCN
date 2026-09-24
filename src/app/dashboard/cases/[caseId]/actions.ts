@@ -446,12 +446,15 @@ export async function sendAppealAction(
 // Covers issuers whose appeal_channel is 'portal' or 'post' — the app
 // can't submit anything on the user's behalf there (no email API to call),
 // so this only ever marks the case as submitted once the user tells us
-// they've done it themselves elsewhere. Mirrors sendAppealAction's payment
-// gate and case/appeal updates exactly, minus the actual send: without
-// this, portal/post issuers had no payment gate at all (the gate only
-// lived in the email branch) and no way to ever leave the "appeal ready"
-// state, so deadline tracking and outcome capture silently never kicked
-// in for them.
+// they've done it themselves elsewhere.
+//
+// Deliberately free, unlike sendAppealAction: charging the same price for
+// "here's a draft, go paste it in yourself" as for "we actually sent it"
+// overcharges for less work (Zaryab, 2026-09-24) — individuals only ever
+// pay when Planal itself performs the send. Still needed regardless of
+// price: without this action, portal/post cases had no way to ever leave
+// the "appeal ready" state, so deadline tracking and outcome capture
+// silently never kicked in for them.
 export async function confirmManualAppealSubmissionAction(
   _prevState: CaseDetailActionState,
   formData: FormData
@@ -463,20 +466,6 @@ export async function confirmManualAppealSubmissionAction(
   if (!user) return { error: "You must be signed in." };
 
   const caseId = String(formData.get("caseId") || "");
-
-  const { organisation } = await ensureAccountProvisioned(supabase, user);
-  if (!organisation) {
-    const { data: paidCharge } = await supabase
-      .from("case_charges")
-      .select("id")
-      .eq("case_id", caseId)
-      .eq("charge_type", "individual_per_case")
-      .eq("status", "paid")
-      .maybeSingle();
-    if (!paidCharge) {
-      return { error: "Pay to confirm this appeal first." };
-    }
-  }
 
   const { data: appeal } = await supabase
     .from("appeals")
