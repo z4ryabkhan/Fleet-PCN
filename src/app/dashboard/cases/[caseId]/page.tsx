@@ -9,9 +9,11 @@ import { EvidenceForm } from "@/components/appeal/EvidenceForm";
 import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
 import { CaseTimeline } from "@/components/cases/CaseTimeline";
 import { PayOrAppealChoice } from "@/components/cases/PayOrAppealChoice";
+import { EvidenceRequestBanner } from "@/components/cases/EvidenceRequestBanner";
 import { formatCaseSummary } from "@/lib/case-summary";
 import { formatAuditAction } from "@/lib/audit-log";
 import { getIndividualCasePriceLabel } from "@/lib/billing";
+import { reasonByCode } from "@/lib/appeal-reasons";
 
 export const metadata = { title: "Case — Planal" };
 
@@ -68,8 +70,15 @@ export default async function CaseDetailPage({
   const { error: logViewError } = await supabase.rpc("log_case_view", { p_case_id: caseId });
   if (logViewError) console.error("log_case_view failed", logViewError);
 
-  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }, { data: auditLog }, { data: matchedIssuer }] =
-    await Promise.all([
+  const [
+    { data: evidence },
+    { data: appeal },
+    { data: paidCharge },
+    { data: gmailConnection },
+    { data: auditLog },
+    { data: matchedIssuer },
+    { data: openEvidenceRequest },
+  ] = await Promise.all([
       supabase
         .from("evidence")
         .select("id, evidence_type, file_ref, uploaded_at")
@@ -78,7 +87,7 @@ export default async function CaseDetailPage({
       supabase
         .from("appeals")
         .select(
-          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at, sent_to_email, send_method"
+          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at, sent_to_email, send_method, last_reply_kind, last_reply_summary"
         )
         .eq("case_id", caseId)
         .maybeSingle(),
@@ -124,6 +133,15 @@ export default async function CaseDetailPage({
             .ilike("name", caseRow.issuer_name)
             .maybeSingle()
         : Promise.resolve({ data: null }),
+      // Evidence-on-request: only ever populated by scan-mailboxes'
+      // Claude-classified reply pass, never proactively asked for here.
+      supabase
+        .from("evidence_requests")
+        .select("id, due_at")
+        .eq("case_id", caseId)
+        .is("fulfilled_at", null)
+        .order("requested_at", { ascending: false })
+        .maybeSingle(),
     ]);
 
   const gmailDraftAvailable = Boolean(
@@ -190,6 +208,21 @@ export default async function CaseDetailPage({
         {paid === "0" && (
           <p className="mt-4 rounded-xl border border-planal-border bg-planal-surface p-3 text-sm text-planal-ink">
             Checkout cancelled — no charge was made.
+          </p>
+        )}
+
+        {openEvidenceRequest && (
+          <EvidenceRequestBanner
+            caseId={caseId}
+            evidenceRequestId={openEvidenceRequest.id}
+            dueAt={openEvidenceRequest.due_at}
+            hints={reasonByCode(caseRow.user_stated_reason)?.evidenceHints ?? []}
+          />
+        )}
+
+        {!openEvidenceRequest && appeal?.last_reply_summary && (
+          <p className="mt-4 rounded-xl border border-planal-border bg-planal-surface p-3 text-sm text-planal-ink-muted">
+            Latest reply: {appeal.last_reply_summary}
           </p>
         )}
 

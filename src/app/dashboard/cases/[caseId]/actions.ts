@@ -10,8 +10,8 @@ import { decryptToken, encryptToken } from "@/lib/crypto";
 import { refreshGoogleAccessToken, GMAIL_COMPOSE_SCOPE } from "@/lib/google-oauth";
 import { refreshMicrosoftAccessToken, GRAPH_MAIL_SEND_SCOPE } from "@/lib/microsoft-oauth";
 import { createGmailAppealDraft } from "@/lib/gmail-drafts";
-import { sendGmailAppeal, type EmailAttachment } from "@/lib/gmail-send";
-import { sendOutlookAppeal } from "@/lib/outlook-send";
+import { sendGmailAppeal, sendGmailEvidenceReply, type EmailAttachment } from "@/lib/gmail-send";
+import { sendOutlookAppeal, sendOutlookEvidenceReply } from "@/lib/outlook-send";
 import {
   getOrCreateBillingAccount,
   createIndividualCaseCheckoutSession,
@@ -499,7 +499,7 @@ export async function sendAppealAction(
   const sent =
     connection.provider === "gmail"
       ? await sendGmailAppeal(accessToken, { to, subject, bodyText, attachments })
-      : (await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments })) ? {} : null;
+      : await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments });
 
   if (!sent) {
     return { error: "Could not send the email. Please try again, or use the PDF pack instead." };
@@ -512,6 +512,11 @@ export async function sendAppealAction(
       outcome: "pending",
       sent_to_email: to,
       send_method: connection.provider,
+      // Evidence-on-request's reply-checking (scan-mailboxes) polls this
+      // thread for the issuer's response — without it, a reply has nothing
+      // to be matched against.
+      sent_message_id: sent.messageId,
+      sent_thread_id: sent.threadId,
     })
     .eq("case_id", caseId);
   if (appealError) return { error: "Sent, but could not update the case record. Please refresh." };
@@ -520,6 +525,166 @@ export async function sendAppealAction(
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: `Sent to ${to}.` };
+}
+
+// Evidence-on-request (Zaryab's spec): the one case where Planal sends
+// something after the initial appeal — always a reply in the same thread,
+// always evidence the issuer's own reply actually asked for (scan-mailboxes'
+// Claude classification created the evidence_requests row this responds
+// to), never proactive. Uses the admin client for the evidence_requests
+// write since that table has no authenticated update policy (service-role
+// writes only, same as case_charges) — everything else here runs as the
+// user, same pattern sendAppealAction uses.
+export async function sendEvidenceReplyAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const evidenceRequestId = String(formData.get("evidenceRequestId") || "");
+  const evidenceType = String(formData.get("evidenceType") || "other");
+  const note = String(formData.get("note") || "").trim();
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a file to send." };
+  if (file.size > 10 * 1024 * 1024) return { error: "File is too large (max 10MB)." };
+
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select("issuer_name, reference_number, vehicle_id, vehicles(vrm, owner_type, owner_user_id, owner_organisation_id)")
+    .eq("id", caseId)
+    .single();
+  if (!caseRow) return { error: "Case not found." };
+
+  const { data: appeal } = await supabase
+    .from("appeals")
+    .select("sent_message_id, sent_thread_id, sent_to_email, send_method")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (!appeal?.sent_message_id || !appeal.sent_thread_id || !appeal.sent_to_email) {
+    return { error: "This case has no sent appeal to reply to." };
+  }
+
+  const vehicle = caseRow.vehicles as unknown as {
+    vrm: string;
+    owner_type: "individual" | "organisation";
+    owner_user_id: string | null;
+    owner_organisation_id: string | null;
+  } | null;
+  if (!vehicle) return { error: "Case has no vehicle." };
+
+  const { data: connection } = await supabase
+    .from("email_connections")
+    .select("id, provider, encrypted_access_token, encrypted_refresh_token, token_expires_at, scopes")
+    .eq("owner_type", vehicle.owner_type)
+    .eq(
+      vehicle.owner_type === "individual" ? "owner_user_id" : "owner_organisation_id",
+      vehicle.owner_type === "individual" ? vehicle.owner_user_id : vehicle.owner_organisation_id
+    )
+    .eq("provider", appeal.send_method)
+    .eq("status", "connected")
+    .maybeSingle();
+  if (!connection) {
+    return { error: "Connect Gmail or Outlook first, from the Connected email page." };
+  }
+
+  const requiredScope = connection.provider === "gmail" ? GMAIL_COMPOSE_SCOPE : GRAPH_MAIL_SEND_SCOPE;
+  if (!connection.scopes?.includes(requiredScope)) {
+    return {
+      error: `Your ${connection.provider === "gmail" ? "Gmail" : "Outlook"} connection needs to be renewed to allow sending — revoke it and reconnect from the Connected email page.`,
+    };
+  }
+
+  let accessToken = decryptToken(connection.encrypted_access_token);
+  if (new Date(connection.token_expires_at).getTime() - Date.now() < 5 * 60_000) {
+    try {
+      const refreshToken = decryptToken(connection.encrypted_refresh_token);
+      if (connection.provider === "gmail") {
+        const refreshed = await refreshGoogleAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      } else {
+        const refreshed = await refreshMicrosoftAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            encrypted_refresh_token: encryptToken(refreshed.refreshToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      }
+    } catch (err) {
+      console.error("Failed to refresh email access token", err);
+      return { error: "Your email connection has expired. Please reconnect it." };
+    }
+  }
+
+  const path = `${caseRow.vehicle_id}/${Date.now()}-${file.name}`;
+  const { error: uploadError } = await supabase.storage.from("case-evidence").upload(path, file);
+  if (uploadError) return { error: "Could not upload the file." };
+
+  const attachment: EmailAttachment = {
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    data: Buffer.from(await file.arrayBuffer()),
+  };
+  const bodyText =
+    note ||
+    `Please find the requested evidence attached in support of my appeal${
+      caseRow.reference_number ? ` (ref ${caseRow.reference_number})` : ""
+    }.`;
+  const subject = `PCN appeal — ${vehicle.vrm} — ${caseRow.issuer_name ?? "issuer"}${
+    caseRow.reference_number ? ` — ref ${caseRow.reference_number}` : ""
+  }`;
+
+  const sent =
+    connection.provider === "gmail"
+      ? await sendGmailEvidenceReply(accessToken, {
+          to: appeal.sent_to_email,
+          subject,
+          bodyText,
+          attachments: [attachment],
+          threadId: appeal.sent_thread_id,
+          inReplyToMessageId: appeal.sent_message_id,
+        })
+      : await sendOutlookEvidenceReply(accessToken, {
+          inReplyToMessageId: appeal.sent_message_id,
+          bodyText,
+          attachments: [attachment],
+        });
+
+  if (!sent) {
+    return { error: "Could not send the evidence. Please try again." };
+  }
+
+  await supabase.from("evidence").insert({
+    case_id: caseId,
+    file_ref: path,
+    evidence_type: ["receipt", "permit", "blue_badge", "breakdown_doc", "other"].includes(evidenceType)
+      ? evidenceType
+      : "other",
+    uploaded_by: user.id,
+  });
+
+  const admin = getSupabaseAdminClient();
+  await admin.from("evidence_requests").update({ fulfilled_at: new Date().toISOString() }).eq("id", evidenceRequestId);
+
+  await supabase.from("cases").update({ status: "appealed" }).eq("id", caseId);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Evidence sent." };
 }
 
 // Covers issuers whose appeal_channel is 'portal' or 'post' — the app
