@@ -5,6 +5,10 @@ import { useState, type FormEvent } from "react";
 type AccountType = "fleet" | "individual";
 type Status = "idle" | "submitting" | "success" | "error";
 
+const LABEL = "block text-sm font-medium text-planal-ink";
+const INPUT =
+  "mt-1 w-full rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5 text-[15px] text-planal-ink placeholder:text-planal-ink-muted focus:border-planal-brand focus:outline-none focus:ring-2 focus:ring-planal-brand-tint";
+
 export function WaitlistForm() {
   const [accountType, setAccountType] = useState<AccountType>("fleet");
   const [status, setStatus] = useState<Status>("idle");
@@ -52,9 +56,9 @@ export function WaitlistForm() {
 
   if (status === "success") {
     return (
-      <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/40 p-6 text-center">
-        <p className="text-lg font-semibold text-emerald-300">You&apos;re on the list.</p>
-        <p className="mt-2 text-sm text-emerald-200/80">
+      <div className="rounded-2xl border border-planal-brand/20 bg-planal-brand-tint p-6 text-center">
+        <p className="text-lg font-semibold text-planal-brand-dark">You&apos;re on the list.</p>
+        <p className="mt-2 text-sm text-planal-brand-dark/80">
           We&apos;ll be in touch directly — no spam, just a short conversation about how you
           currently handle parking and traffic penalty notices.
         </p>
@@ -64,14 +68,14 @@ export function WaitlistForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="flex rounded-lg border border-white/10 bg-white/5 p-1 text-sm">
+      <div className="flex rounded-xl border border-planal-border bg-planal-bg p-1 text-sm">
         <button
           type="button"
           onClick={() => setAccountType("fleet")}
-          className={`flex-1 rounded-md py-2 font-medium transition-colors ${
+          className={`flex-1 rounded-lg py-2 font-medium transition-colors ${
             accountType === "fleet"
-              ? "bg-white text-zinc-900"
-              : "text-zinc-300 hover:text-white"
+              ? "bg-planal-surface text-planal-ink shadow-sm"
+              : "text-planal-ink-muted hover:text-planal-ink"
           }`}
         >
           I run a fleet / business
@@ -79,10 +83,10 @@ export function WaitlistForm() {
         <button
           type="button"
           onClick={() => setAccountType("individual")}
-          className={`flex-1 rounded-md py-2 font-medium transition-colors ${
+          className={`flex-1 rounded-lg py-2 font-medium transition-colors ${
             accountType === "individual"
-              ? "bg-white text-zinc-900"
-              : "text-zinc-300 hover:text-white"
+              ? "bg-planal-surface text-planal-ink shadow-sm"
+              : "text-planal-ink-muted hover:text-planal-ink"
           }`}
         >
           I&apos;m an individual driver
@@ -91,20 +95,13 @@ export function WaitlistForm() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-1">
-          <label htmlFor="name" className="block text-sm font-medium text-zinc-300">
+          <label htmlFor="name" className={LABEL}>
             Name
           </label>
-          <input
-            id="name"
-            name="name"
-            required
-            maxLength={200}
-            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
-            placeholder="Jane Smith"
-          />
+          <input id="name" name="name" required maxLength={200} className={INPUT} placeholder="Jane Smith" />
         </div>
         <div className="sm:col-span-1">
-          <label htmlFor="email" className="block text-sm font-medium text-zinc-300">
+          <label htmlFor="email" className={LABEL}>
             Email
           </label>
           <input
@@ -113,7 +110,7 @@ export function WaitlistForm() {
             type="email"
             required
             maxLength={320}
-            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
+            className={INPUT}
             placeholder="jane@company.co.uk"
           />
         </div>
@@ -121,76 +118,56 @@ export function WaitlistForm() {
         {accountType === "fleet" && (
           <>
             <div className="sm:col-span-1">
-              <label htmlFor="company" className="block text-sm font-medium text-zinc-300">
+              <label htmlFor="company" className={LABEL}>
                 Company name
               </label>
-              <input
-                id="company"
-                name="company"
-                maxLength={200}
-                className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
-                placeholder="Acme Deliveries Ltd"
-              />
+              <input id="company" name="company" maxLength={200} className={INPUT} placeholder="Acme Deliveries Ltd" />
             </div>
             <div className="sm:col-span-1">
-              <label htmlFor="fleetSize" className="block text-sm font-medium text-zinc-300">
+              <label htmlFor="fleetSize" className={LABEL}>
                 Roughly how many vehicles?
               </label>
-              <input
-                id="fleetSize"
-                name="fleetSize"
-                maxLength={50}
-                className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
-                placeholder="e.g. 15"
-              />
+              <input id="fleetSize" name="fleetSize" maxLength={50} className={INPUT} placeholder="e.g. 15" />
             </div>
           </>
         )}
 
         <div className="sm:col-span-2">
-          <label htmlFor="phone" className="block text-sm font-medium text-zinc-300">
-            Phone <span className="text-zinc-500">(optional)</span>
+          <label htmlFor="phone" className={LABEL}>
+            Phone <span className="text-planal-ink-muted">(optional)</span>
           </label>
-          <input
-            id="phone"
-            name="phone"
-            maxLength={50}
-            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
-            placeholder="07..."
-          />
+          <input id="phone" name="phone" maxLength={50} className={INPUT} placeholder="07..." />
         </div>
 
         <div className="sm:col-span-2">
-          <label htmlFor="message" className="block text-sm font-medium text-zinc-300">
+          <label htmlFor="message" className={LABEL}>
             What&apos;s frustrating about handling PCNs today?{" "}
-            <span className="text-zinc-500">(optional)</span>
+            <span className="text-planal-ink-muted">(optional)</span>
           </label>
           <textarea
             id="message"
             name="message"
             rows={3}
             maxLength={2000}
-            className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
+            className={INPUT}
             placeholder="Tell us how you currently catch and manage tickets"
           />
         </div>
       </div>
 
-      {status === "error" && (
-        <p className="text-sm text-red-400">{errorMessage}</p>
-      )}
+      {status === "error" && <p className="text-sm text-planal-danger-text">{errorMessage}</p>}
 
       <button
         type="submit"
         disabled={status === "submitting"}
-        className="w-full rounded-md bg-emerald-500 px-4 py-3 font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-2xl bg-planal-brand px-4 py-3 font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "submitting" ? "Submitting..." : "Join the waitlist"}
       </button>
 
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-planal-ink-muted">
         We&apos;ll only use these details to contact you about Planal. See our{" "}
-        <a href="/privacy" className="underline hover:text-zinc-300">
+        <a href="/privacy" className="underline hover:text-planal-ink">
           privacy policy
         </a>
         .
