@@ -9,8 +9,14 @@
 
 const TOKEN_ENDPOINT_BASE = "https://login.microsoftonline.com";
 
-// Read-only, per Part 6 — never request write/send/delete scopes.
+// Read-only, per Part 6 — never request write/send/delete scopes beyond
+// this. Mail.Send added for the real appeal-send path (build brief section
+// 8 Phase 2) — anyone who connected Outlook before this scope existed
+// needs to reconnect before sendOutlookAppeal will work for them; the
+// calling action checks connection.scopes and says so explicitly rather
+// than failing silently.
 export const GRAPH_MAIL_READ_SCOPE = "https://graph.microsoft.com/Mail.Read";
+export const GRAPH_MAIL_SEND_SCOPE = "https://graph.microsoft.com/Mail.Send";
 
 function getTenant(): string {
   // "common" supports both work/school and personal Microsoft accounts —
@@ -23,13 +29,15 @@ export function isMicrosoftOAuthConfigured(): boolean {
   return Boolean(process.env.MS_OAUTH_CLIENT_ID && process.env.MS_OAUTH_CLIENT_SECRET && process.env.MS_OAUTH_REDIRECT_URI);
 }
 
+const REQUESTED_SCOPES = `openid email offline_access ${GRAPH_MAIL_READ_SCOPE} ${GRAPH_MAIL_SEND_SCOPE}`;
+
 export function buildMicrosoftAuthUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: process.env.MS_OAUTH_CLIENT_ID!,
     redirect_uri: process.env.MS_OAUTH_REDIRECT_URI!,
     response_type: "code",
     response_mode: "query",
-    scope: `openid email offline_access ${GRAPH_MAIL_READ_SCOPE}`,
+    scope: REQUESTED_SCOPES,
     state,
   });
   return `${TOKEN_ENDPOINT_BASE}/${getTenant()}/oauth2/v2.0/authorize?${params.toString()}`;
@@ -54,7 +62,7 @@ export async function exchangeCodeForTokens(code: string): Promise<MicrosoftToke
       code,
       grant_type: "authorization_code",
       redirect_uri: process.env.MS_OAUTH_REDIRECT_URI!,
-      scope: `openid email offline_access ${GRAPH_MAIL_READ_SCOPE}`,
+      scope: REQUESTED_SCOPES,
     }),
   });
 
@@ -63,6 +71,32 @@ export async function exchangeCodeForTokens(code: string): Promise<MicrosoftToke
   }
 
   return res.json();
+}
+
+// Node-side token refresh, mirroring
+// supabase/functions/scan-mailboxes/index.ts's Deno copy (duplicated for
+// the same reason as refreshGoogleAccessToken in google-oauth.ts — sending
+// happens synchronously on a user's click, not on that function's own
+// schedule). Microsoft rotates refresh tokens on use, unlike Google's.
+export async function refreshMicrosoftAccessToken(
+  refreshToken: string
+): Promise<{ accessToken: string; expiresIn: number; refreshToken: string }> {
+  const res = await fetch(`${TOKEN_ENDPOINT_BASE}/${getTenant()}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: process.env.MS_OAUTH_CLIENT_ID!,
+      client_secret: process.env.MS_OAUTH_CLIENT_SECRET!,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+      scope: REQUESTED_SCOPES,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Microsoft token refresh failed: ${res.status} ${await res.text()}`);
+  }
+  const json = await res.json();
+  return { accessToken: json.access_token, expiresIn: json.expires_in, refreshToken: json.refresh_token };
 }
 
 /** Decodes the email out of the id_token (a JWT) without verifying the

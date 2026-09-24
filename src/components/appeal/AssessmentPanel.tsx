@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import {
   requestAssessmentAction,
   saveDraftEditAction,
-  confirmAppealAction,
+  sendAppealAction,
   setOutcomeAction,
   startIndividualCasePaymentAction,
   createGmailDraftAction,
@@ -24,6 +24,14 @@ type Appeal = {
   outcome: "pending" | "won" | "lost" | null;
 };
 
+type IssuerMatch = {
+  appeal_channel: "email" | "portal" | "post";
+  appeal_email: string | null;
+  portal_url: string | null;
+  postal_address: string | null;
+  verified_at: string | null;
+} | null;
+
 const STRENGTH_STYLES: Record<string, string> = {
   strong: "bg-planal-brand-tint-2 text-planal-brand-dark",
   moderate: "bg-planal-amber-bg text-planal-amber-text",
@@ -42,6 +50,7 @@ export function AssessmentPanel({
   requiresPayment,
   isPaid,
   gmailDraftAvailable,
+  issuerMatch,
 }: {
   caseId: string;
   appeal: Appeal | null;
@@ -49,6 +58,7 @@ export function AssessmentPanel({
   requiresPayment: boolean;
   isPaid: boolean;
   gmailDraftAvailable: boolean;
+  issuerMatch: IssuerMatch;
 }) {
   const [assessState, assessAction, assessPending] = useActionState(
     requestAssessmentAction,
@@ -59,10 +69,7 @@ export function AssessmentPanel({
     initialState
   );
   const [draftState, draftAction, draftPending] = useActionState(saveDraftEditAction, initialState);
-  const [confirmState, confirmAction, confirmPending] = useActionState(
-    confirmAppealAction,
-    initialState
-  );
+  const [sendState, sendAction, sendPending] = useActionState(sendAppealAction, initialState);
   const [outcomeState, outcomeAction, outcomePending] = useActionState(
     setOutcomeAction,
     initialState
@@ -203,15 +210,39 @@ export function AssessmentPanel({
         </div>
       )}
 
-      {!isConfirmed && (
-        <div className="mt-6 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-4">
+      {!isConfirmed && issuerMatch && issuerMatch.appeal_channel !== "email" && (
+        <div className="mt-6 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-4 text-sm text-planal-amber-text">
+          {issuerMatch.appeal_channel === "portal"
+            ? <>This issuer only accepts appeals through their own portal — email won&apos;t reach them. Copy the draft above and submit it there{issuerMatch.portal_url ? ` (${issuerMatch.portal_url})` : ""}.</>
+            : <>This issuer only accepts appeals by post. Use the PDF pack below instead of emailing.</>}
+        </div>
+      )}
+
+      {!isConfirmed && (!issuerMatch || issuerMatch.appeal_channel === "email") && (
+        <div className="mt-6 rounded-xl border border-planal-border bg-planal-bg p-4">
           <p className="text-sm text-planal-ink">
-            Nothing is sent until you approve it. This only marks the case as appealed in your
-            dashboard — you still need to copy this text and submit it yourself, on the
-            issuer&apos;s (or tribunal&apos;s) own site or by post.
+            Sends immediately from your own connected Gmail or Outlook, with any evidence
+            attached — there is no further step after this.
           </p>
-          <form action={confirmAction} className="mt-3">
+          {issuerMatch?.verified_at ? null : (
+            <p className="mt-2 text-xs text-planal-ink-muted">
+              No verified address on file for this issuer yet — check the notice itself for
+              where appeals should go.
+            </p>
+          )}
+          <form action={sendAction} className="mt-3 space-y-2">
             <input type="hidden" name="caseId" value={caseId} />
+            <label className="block text-sm font-medium text-planal-ink">
+              Send to
+              <input
+                name="to"
+                type="email"
+                required
+                defaultValue={issuerMatch?.appeal_email ?? ""}
+                placeholder="appeals@example-council.gov.uk"
+                className="mt-1 w-full rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5 text-[15px] text-planal-ink focus:border-planal-brand focus:outline-none focus:ring-2 focus:ring-planal-brand-tint"
+              />
+            </label>
             <label className="flex items-center gap-2 text-sm text-planal-ink">
               <input
                 type="checkbox"
@@ -219,17 +250,20 @@ export function AssessmentPanel({
                 onChange={(e) => setConfirmChecked(e.target.checked)}
                 className="h-4 w-4 rounded border-planal-border"
               />
-              I understand I still need to submit this myself
+              I&apos;ve checked this address and I&apos;m ready to send
             </label>
-            {confirmState && "error" in confirmState && (
-              <p className="mt-2 text-sm text-planal-danger-text">{confirmState.error}</p>
+            {sendState && "error" in sendState && (
+              <p className="text-sm text-planal-danger-text">{sendState.error}</p>
+            )}
+            {sendState && "success" in sendState && (
+              <p className="text-sm text-planal-brand-dark">{sendState.success}</p>
             )}
             <button
               type="submit"
-              disabled={confirmPending || !confirmChecked}
-              className={`mt-3 ${PRIMARY_BTN}`}
+              disabled={sendPending || !confirmChecked}
+              className={PRIMARY_BTN}
             >
-              {confirmPending ? "Confirming..." : "Send from my email"}
+              {sendPending ? "Sending..." : "Send from my email"}
             </button>
           </form>
         </div>

@@ -65,7 +65,7 @@ export default async function CaseDetailPage({
   const { error: logViewError } = await supabase.rpc("log_case_view", { p_case_id: caseId });
   if (logViewError) console.error("log_case_view failed", logViewError);
 
-  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }, { data: auditLog }] =
+  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }, { data: auditLog }, { data: matchedIssuer }] =
     await Promise.all([
       supabase
         .from("evidence")
@@ -107,6 +107,17 @@ export default async function CaseDetailPage({
         .eq("metadata->>case_id", caseId)
         .order("created_at", { ascending: false })
         .returns<AuditLogRow[]>(),
+      // Issuer directory (build brief section 5) is brand new and starts
+      // empty — a miss here just means no prefill/guidance, never an
+      // error. Case-insensitive match on the free-text issuer_name Claude
+      // extracted, since there's no issuer_id FK on cases yet.
+      caseRow.issuer_name
+        ? supabase
+            .from("issuers")
+            .select("appeal_channel, appeal_email, portal_url, postal_address, verified_at")
+            .ilike("name", caseRow.issuer_name)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
 
   const gmailDraftAvailable = Boolean(
@@ -188,6 +199,7 @@ export default async function CaseDetailPage({
             requiresPayment={!organisation}
             isPaid={Boolean(paidCharge)}
             gmailDraftAvailable={gmailDraftAvailable}
+            issuerMatch={matchedIssuer}
           />
         </div>
 
