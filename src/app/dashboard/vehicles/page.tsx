@@ -5,6 +5,9 @@ import { AddVehicleForm } from "@/components/vehicles/AddVehicleForm";
 import { ImportVehiclesForm } from "@/components/vehicles/ImportVehiclesForm";
 import { OrgVerificationForm } from "@/components/vehicles/OrgVerificationForm";
 import { AssignDriverSelect } from "@/components/vehicles/AssignDriverSelect";
+import { HireRecordForm } from "@/components/vehicles/HireRecordForm";
+import { HireRecordsList } from "@/components/vehicles/HireRecordsList";
+import { ReportFleetTicketForm } from "@/components/vehicles/ReportFleetTicketForm";
 
 export const metadata = { title: "Vehicles — Planal" };
 
@@ -33,9 +36,10 @@ export default async function VehiclesPage() {
   let vehicles: Vehicle[] = [];
   let orgVerified = false;
   let members: { userId: string; label: string }[] = [];
+  let hireRecords: { id: string; vrm: string; hirer_name: string; start_at: string; end_at: string }[] = [];
 
   if (organisation) {
-    const [{ data: vehicleRows }, { data: orgRow }, { data: memberRows }] = await Promise.all([
+    const [{ data: vehicleRows }, { data: orgRow }, { data: memberRows }, { data: hireRows }] = await Promise.all([
       supabase
         .from("vehicles")
         .select(
@@ -49,12 +53,25 @@ export default async function VehiclesPage() {
         .select("user_id, users(email, full_name)")
         .eq("organisation_id", organisation.id)
         .returns<MemberRow[]>(),
+      supabase
+        .from("hire_records")
+        .select("id, hirer_name, start_at, end_at, vehicles(vrm)")
+        .eq("organisation_id", organisation.id)
+        .order("start_at", { ascending: false })
+        .returns<{ id: string; hirer_name: string; start_at: string; end_at: string; vehicles: { vrm: string } | null }[]>(),
     ]);
     vehicles = vehicleRows ?? [];
     orgVerified = orgRow?.verification_status === "verified";
     members = (memberRows ?? []).map((m) => ({
       userId: m.user_id,
       label: m.users?.full_name ?? m.users?.email ?? m.user_id,
+    }));
+    hireRecords = (hireRows ?? []).map((h) => ({
+      id: h.id,
+      vrm: h.vehicles?.vrm ?? "—",
+      hirer_name: h.hirer_name,
+      start_at: h.start_at,
+      end_at: h.end_at,
     }));
   } else {
     const { data: vehicleRows } = await supabase
@@ -158,6 +175,25 @@ export default async function VehiclesPage() {
             </div>
           )}
         </div>
+
+        {organisation && orgVerified && isAdmin && vehicles.length > 0 && (
+          <>
+            <div className="mt-10 grid gap-6 sm:grid-cols-2">
+              <HireRecordForm vehicles={vehicles} />
+              <ReportFleetTicketForm vehicles={vehicles} />
+            </div>
+
+            <div className="mt-10">
+              <h2 className="text-lg font-medium">Hires on record</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                A PCN dated inside one of these windows is routed to a transfer-of-liability letter automatically.
+              </p>
+              <div className="mt-3">
+                <HireRecordsList records={hireRecords} />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </main>
   );

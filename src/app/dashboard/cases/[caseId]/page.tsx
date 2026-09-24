@@ -10,6 +10,8 @@ import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
 import { CaseTimeline } from "@/components/cases/CaseTimeline";
 import { PayOrAppealChoice } from "@/components/cases/PayOrAppealChoice";
 import { EvidenceRequestBanner } from "@/components/cases/EvidenceRequestBanner";
+import { TransferLiabilityPanel } from "@/components/cases/TransferLiabilityPanel";
+import { NeedsReviewPanel } from "@/components/cases/NeedsReviewPanel";
 import { formatCaseSummary } from "@/lib/case-summary";
 import { formatAuditAction } from "@/lib/audit-log";
 import { getIndividualCasePriceLabel } from "@/lib/billing";
@@ -50,7 +52,7 @@ export default async function CaseDetailPage({
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, user_stated_reason, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, user_stated_reason, route, matched_hire_id, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -78,6 +80,8 @@ export default async function CaseDetailPage({
     { data: auditLog },
     { data: matchedIssuer },
     { data: openEvidenceRequest },
+    { data: matchedHireRecord },
+    { data: needsReviewCandidates },
   ] = await Promise.all([
       supabase
         .from("evidence")
@@ -142,6 +146,23 @@ export default async function CaseDetailPage({
         .is("fulfilled_at", null)
         .order("requested_at", { ascending: false })
         .maybeSingle(),
+      // Fleet route (0043): filled in only for the case this route was
+      // actually matched to.
+      caseRow.route === "transfer_liability" && caseRow.matched_hire_id
+        ? supabase
+            .from("hire_records")
+            .select("hirer_name, hirer_address, start_at, end_at, agreement_file_path")
+            .eq("id", caseRow.matched_hire_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      caseRow.route === "needs_review" && caseRow.event_datetime
+        ? supabase
+            .from("hire_records")
+            .select("id, hirer_name, start_at, end_at")
+            .eq("vehicle_id", caseRow.vehicle_id)
+            .lte("start_at", caseRow.event_datetime)
+            .gte("end_at", caseRow.event_datetime)
+        : Promise.resolve({ data: null }),
     ]);
 
   const gmailDraftAvailable = Boolean(
@@ -236,7 +257,45 @@ export default async function CaseDetailPage({
         </div>
 
         <div className="mt-6" id="send-appeal">
-          {!appeal ? (
+          {caseRow.route === "transfer_liability" ? (
+            matchedHireRecord ? (
+              <TransferLiabilityPanel
+                caseId={caseId}
+                hirerName={matchedHireRecord.hirer_name}
+                hirerAddress={matchedHireRecord.hirer_address}
+                hireStart={matchedHireRecord.start_at}
+                hireEnd={matchedHireRecord.end_at}
+                hasAgreement={Boolean(matchedHireRecord.agreement_file_path)}
+                issuerEmail={matchedIssuer?.appeal_email ?? null}
+                alreadySent={caseRow.status === "transferred"}
+              />
+            ) : (
+              // Hire records are admin-only (0043) — an assigned driver who
+              // can view this case at all still can't see the hirer's
+              // details, so this never falls through to the AI appeal flow
+              // below, which would be the wrong thing entirely for a
+              // transfer case.
+              <p className="rounded-2xl border border-planal-border bg-planal-surface p-5 text-sm text-planal-ink-muted">
+                This vehicle was on hire at the time — your fleet admin is handling the transfer notice.
+              </p>
+            )
+          ) : caseRow.route === "needs_review" ? (
+            organisation?.role === "admin" ? (
+              <NeedsReviewPanel
+                caseId={caseId}
+                candidates={(needsReviewCandidates ?? []).map((c) => ({
+                  id: c.id,
+                  hirerName: c.hirer_name,
+                  startAt: c.start_at,
+                  endAt: c.end_at,
+                }))}
+              />
+            ) : (
+              <p className="rounded-2xl border border-planal-border bg-planal-surface p-5 text-sm text-planal-ink-muted">
+                Your fleet admin is checking the hire records for this vehicle.
+              </p>
+            )
+          ) : !appeal ? (
             caseRow.details_confirmed_at && <AutoAssess caseId={caseId} />
           ) : (
             <>

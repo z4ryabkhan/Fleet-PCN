@@ -58,6 +58,10 @@ export function formatCaseSummary(c: CaseSummaryInput): string {
     return `${opener} You've appealed this — check back here once you hear the outcome.`;
   }
 
+  if (c.status === "transferred") {
+    return `${opener} Liability was transferred to the hirer who had the vehicle at the time.`;
+  }
+
   if (c.status === "closed") {
     return `${opener} This case is closed.`;
   }

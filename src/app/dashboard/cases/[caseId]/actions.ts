@@ -12,6 +12,7 @@ import { refreshMicrosoftAccessToken, GRAPH_MAIL_SEND_SCOPE } from "@/lib/micros
 import { createGmailAppealDraft } from "@/lib/gmail-drafts";
 import { sendGmailAppeal, sendGmailEvidenceReply, type EmailAttachment } from "@/lib/gmail-send";
 import { sendOutlookAppeal, sendOutlookEvidenceReply } from "@/lib/outlook-send";
+import { buildTransferLiabilityLetter } from "@/lib/transfer-liability";
 import {
   getOrCreateBillingAccount,
   createIndividualCaseCheckoutSession,
@@ -525,6 +526,194 @@ export async function sendAppealAction(
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: `Sent to ${to}.` };
+}
+
+// Build brief Phase 4 "transfer_liability" route (0043): sends a filled-in
+// notification letter naming the hirer who had the vehicle at the time,
+// rather than an AI-drafted appeal — see src/lib/transfer-liability.ts for
+// why this is a template, not a Claude call. Deliberately does not touch
+// the appeals table (there's no assessment here to record) or
+// sent_thread_id (scan-mailboxes' reply-classification pass is
+// appeal-specific; a transfer notice is a one-shot letter, not something
+// this pass tracks a reply thread for).
+export async function sendTransferLiabilityAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const to = String(formData.get("to") || "").trim();
+  if (!to || !to.includes("@")) return { error: "Enter a valid recipient email address." };
+
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select(
+      "route, matched_hire_id, issuer_name, reference_number, location_text, event_datetime, vehicles(vrm, owner_type, owner_organisation_id)"
+    )
+    .eq("id", caseId)
+    .single();
+  if (!caseRow) return { error: "Case not found." };
+  if (caseRow.route !== "transfer_liability" || !caseRow.matched_hire_id) {
+    return { error: "This case isn't matched to a hire record." };
+  }
+
+  const vehicle = caseRow.vehicles as unknown as {
+    vrm: string;
+    owner_type: "individual" | "organisation";
+    owner_organisation_id: string | null;
+  } | null;
+  if (!vehicle || vehicle.owner_type !== "organisation" || !vehicle.owner_organisation_id) {
+    return { error: "Only fleet vehicles can transfer liability." };
+  }
+
+  const { data: hireRecord } = await supabase
+    .from("hire_records")
+    .select("hirer_name, hirer_address, start_at, end_at, agreement_file_path")
+    .eq("id", caseRow.matched_hire_id)
+    .single();
+  if (!hireRecord) return { error: "The matched hire record could not be found." };
+
+  const { data: connection } = await supabase
+    .from("email_connections")
+    .select("id, provider, encrypted_access_token, encrypted_refresh_token, token_expires_at, scopes")
+    .eq("owner_type", "organisation")
+    .eq("owner_organisation_id", vehicle.owner_organisation_id)
+    .eq("status", "connected")
+    .maybeSingle();
+
+  if (!connection) {
+    return { error: "Connect Gmail or Outlook first, from the Connected email page." };
+  }
+
+  const requiredScope = connection.provider === "gmail" ? GMAIL_COMPOSE_SCOPE : GRAPH_MAIL_SEND_SCOPE;
+  if (!connection.scopes?.includes(requiredScope)) {
+    return {
+      error: `Your ${connection.provider === "gmail" ? "Gmail" : "Outlook"} connection needs to be renewed to allow sending — revoke it and reconnect from the Connected email page.`,
+    };
+  }
+
+  let accessToken = decryptToken(connection.encrypted_access_token);
+  if (new Date(connection.token_expires_at).getTime() - Date.now() < 5 * 60_000) {
+    try {
+      const refreshToken = decryptToken(connection.encrypted_refresh_token);
+      if (connection.provider === "gmail") {
+        const refreshed = await refreshGoogleAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      } else {
+        const refreshed = await refreshMicrosoftAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            encrypted_refresh_token: encryptToken(refreshed.refreshToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      }
+    } catch (err) {
+      console.error("Failed to refresh email access token", err);
+      return { error: "Your email connection has expired. Please reconnect it." };
+    }
+  }
+
+  const attachments: EmailAttachment[] = [];
+  if (hireRecord.agreement_file_path) {
+    const { data: blob, error } = await supabase.storage
+      .from("hire-agreements")
+      .download(hireRecord.agreement_file_path);
+    if (!error && blob) {
+      const ext = hireRecord.agreement_file_path.toLowerCase().split(".").pop() ?? "";
+      const mimeType = ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : "image/jpeg";
+      attachments.push({
+        filename: hireRecord.agreement_file_path.split("/").pop() ?? "hire-agreement",
+        mimeType,
+        data: Buffer.from(await blob.arrayBuffer()),
+      });
+    }
+  }
+
+  const bodyText = buildTransferLiabilityLetter({
+    issuerName: caseRow.issuer_name,
+    referenceNumber: caseRow.reference_number,
+    vrm: vehicle.vrm,
+    eventDatetime: caseRow.event_datetime,
+    locationText: caseRow.location_text,
+    hirerName: hireRecord.hirer_name,
+    hirerAddress: hireRecord.hirer_address,
+    hireStart: hireRecord.start_at,
+    hireEnd: hireRecord.end_at,
+    hasAgreementAttached: attachments.length > 0,
+  });
+
+  const subject = `Transfer of liability — ${vehicle.vrm} — ${caseRow.issuer_name ?? "issuer"}${
+    caseRow.reference_number ? ` — ref ${caseRow.reference_number}` : ""
+  }`;
+
+  const sent =
+    connection.provider === "gmail"
+      ? await sendGmailAppeal(accessToken, { to, subject, bodyText, attachments })
+      : await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments });
+
+  if (!sent) {
+    return { error: "Could not send the email. Please try again, or use the PDF pack instead." };
+  }
+
+  await supabase.from("cases").update({ status: "transferred" }).eq("id", caseId);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: `Sent to ${to}.` };
+}
+
+// A case only ever lands in 'needs_review' (0043) when more than one hire
+// record overlaps the contravention date on the same vehicle — an admin
+// has to say which hirer actually had it, or that neither applies and this
+// should just be appealed normally. Only ever moves a case OUT of
+// needs_review, never into it (compute_case_route sets that).
+export async function resolveHireMatchAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const choice = String(formData.get("choice") || "");
+
+  const { data: caseRow } = await supabase.from("cases").select("route").eq("id", caseId).single();
+  if (!caseRow) return { error: "Case not found." };
+  if (caseRow.route !== "needs_review") return { error: "This case doesn't need review." };
+
+  if (choice === "appeal") {
+    const { error } = await supabase.from("cases").update({ route: "appeal", matched_hire_id: null }).eq("id", caseId);
+    if (error) return { error: "Could not update this case. Please try again." };
+  } else {
+    const hireRecordId = choice;
+    if (!hireRecordId) return { error: "Choose which hire this ticket belongs to." };
+    const { error } = await supabase
+      .from("cases")
+      .update({ route: "transfer_liability", matched_hire_id: hireRecordId })
+      .eq("id", caseId);
+    if (error) return { error: "Could not update this case. Please try again." };
+  }
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Updated." };
 }
 
 // Evidence-on-request (Zaryab's spec): the one case where Planal sends

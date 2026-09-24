@@ -15,6 +15,7 @@ type CaseRow = {
   amount_full: number | null;
   final_deadline: string | null;
   status: string;
+  route: string | null;
   vehicles: { vrm: string; assigned_driver_user_id: string | null } | null;
 };
 
@@ -35,7 +36,7 @@ export default async function CasesPage() {
       // Cast needed: Supabase's generated-free client types this embedded
       // relation as an array by default; it's a single row via the FK.
       .select(
-        "id, reference_number, issuer_name, amount_full, final_deadline, status, vehicles(vrm, assigned_driver_user_id)"
+        "id, reference_number, issuer_name, amount_full, final_deadline, status, route, vehicles(vrm, assigned_driver_user_id)"
       )
       .order("final_deadline", { ascending: true, nullsFirst: false })
       .returns<CaseRow[]>(),
@@ -104,7 +105,19 @@ export default async function CasesPage() {
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <DeadlineChip deadline={c.final_deadline} settled={["paid", "closed"].includes(c.status)} />
-                      <span className="text-sm capitalize text-planal-ink-muted">{c.status}</span>
+                      <span className="flex items-center gap-2">
+                        {c.route === "needs_review" && (
+                          <span className="rounded-full bg-planal-amber-bg px-2 py-0.5 text-xs font-semibold text-planal-amber-text">
+                            Needs review
+                          </span>
+                        )}
+                        {c.route === "transfer_liability" && c.status !== "transferred" && (
+                          <span className="rounded-full bg-planal-brand-tint px-2 py-0.5 text-xs font-semibold text-planal-brand-dark">
+                            Transfer liability
+                          </span>
+                        )}
+                        <span className="text-sm capitalize text-planal-ink-muted">{c.status}</span>
+                      </span>
                     </div>
                   </Link>
                 </li>
