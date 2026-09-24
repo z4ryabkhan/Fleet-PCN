@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import {
   saveDraftEditAction,
   sendAppealAction,
+  confirmManualAppealSubmissionAction,
   setOutcomeAction,
   startIndividualCasePaymentAction,
   createGmailDraftAction,
@@ -80,6 +81,10 @@ export function AssessmentPanel({
   );
   const [draftState, draftAction, draftPending] = useActionState(saveDraftEditAction, initialState);
   const [sendState, sendAction, sendPending] = useActionState(sendAppealAction, initialState);
+  const [manualState, manualAction, manualPending] = useActionState(
+    confirmManualAppealSubmissionAction,
+    initialState
+  );
   const [outcomeState, outcomeAction, outcomePending] = useActionState(
     setOutcomeAction,
     initialState
@@ -89,6 +94,7 @@ export function AssessmentPanel({
     initialState
   );
   const [confirmChecked, setConfirmChecked] = useState(false);
+  const [manualConfirmChecked, setManualConfirmChecked] = useState(false);
 
   const isConfirmed = Boolean(appeal.user_confirmed_at);
   const currentText = appeal.user_edited_text ?? appeal.draft_text ?? "";
@@ -106,10 +112,12 @@ export function AssessmentPanel({
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-planal-brand-tint text-planal-brand-dark">
             <CheckIcon className="h-5 w-5" />
           </span>
-          <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">Appeal sent</h2>
+          <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">
+            {appeal.send_method === "manual" ? "Appeal submitted" : "Appeal sent"}
+          </h2>
         </div>
 
-        {appeal.sent_to_email && (
+        {appeal.sent_to_email ? (
           <p className="mt-4 text-base text-planal-ink">
             Sent to <span className="font-medium">{appeal.sent_to_email}</span> from{" "}
             <SendMethodLabel method={appeal.send_method} />
@@ -125,11 +133,31 @@ export function AssessmentPanel({
             )}
             .
           </p>
+        ) : (
+          appeal.send_method === "manual" && (
+            <p className="mt-4 text-base text-planal-ink">
+              Marked as submitted{" "}
+              {issuerMatch?.appeal_channel === "portal" ? "through the issuer's own portal" : "by post"}
+              {appeal.user_confirmed_at && (
+                <>
+                  {" "}
+                  on{" "}
+                  {new Date(appeal.user_confirmed_at).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "long",
+                  })}
+                </>
+              )}
+              .
+            </p>
+          )
         )}
 
         <p className="mt-3 text-sm text-planal-ink-muted">
           We&apos;ll keep tracking this case&apos;s deadlines and remind you before they pass.
-          Keep an eye on the inbox you sent from for a reply from {appeal.sent_to_email ? "them" : "the issuer"}.
+          {appeal.send_method === "manual"
+            ? " Check back on the issuer's own site (or your post) for their decision — we can't see it from here."
+            : ` Keep an eye on the inbox you sent from for a reply from ${appeal.sent_to_email ? "them" : "the issuer"}.`}
         </p>
 
         <div className="mt-4 rounded-xl bg-planal-bg p-3">
@@ -263,17 +291,68 @@ export function AssessmentPanel({
       )}
 
       {issuerMatch && issuerMatch.appeal_channel !== "email" && (
-        <div className="mt-6 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-4 text-sm text-planal-amber-text">
-          {issuerMatch.appeal_channel === "portal" ? (
-            <>
-              This issuer only accepts appeals through their own portal — email won&apos;t reach
-              them. Copy the draft above and submit it there
-              {issuerMatch.portal_url ? ` (${issuerMatch.portal_url})` : ""}.
-            </>
+        <>
+          <div className="mt-6 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-4 text-sm text-planal-amber-text">
+            {issuerMatch.appeal_channel === "portal" ? (
+              <>
+                This issuer only accepts appeals through their own portal — email won&apos;t reach
+                them. Copy the draft above and submit it there
+                {issuerMatch.portal_url ? ` (${issuerMatch.portal_url})` : ""}.
+              </>
+            ) : (
+              <>This issuer only accepts appeals by post. Use the PDF pack below instead of emailing.</>
+            )}
+          </div>
+
+          {requiresPayment && !isPaid ? (
+            <div className="mt-4 rounded-xl border border-planal-border bg-planal-bg p-4">
+              <p className="text-base text-planal-ink">
+                Once you&apos;ve paid, come back here and confirm once you&apos;ve submitted it
+                yourself{issuerMatch.appeal_channel === "portal" ? " on their portal" : " by post"}.
+              </p>
+              <form action={payAction} className="mt-3">
+                <input type="hidden" name="caseId" value={caseId} />
+                {payState && "error" in payState && (
+                  <p className="mb-2 text-sm text-planal-danger-text" role="alert">
+                    {payState.error}
+                  </p>
+                )}
+                <button type="submit" disabled={payPending} className={`w-full ${PRIMARY_BTN}`}>
+                  {payPending ? "Redirecting…" : `Pay ${priceLabel ?? "and"} & continue`}
+                </button>
+              </form>
+            </div>
           ) : (
-            <>This issuer only accepts appeals by post. Use the PDF pack below instead of emailing.</>
+            <div className="mt-4 rounded-xl border border-planal-border bg-planal-bg p-4">
+              <form action={manualAction} className="space-y-2">
+                <input type="hidden" name="caseId" value={caseId} />
+                <label className="flex min-h-11 items-center gap-2 text-sm text-planal-ink">
+                  <input
+                    type="checkbox"
+                    checked={manualConfirmChecked}
+                    onChange={(e) => setManualConfirmChecked(e.target.checked)}
+                    className="h-5 w-5 rounded border-planal-border focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand"
+                  />
+                  I&apos;ve submitted this appeal
+                  {issuerMatch.appeal_channel === "portal" ? " on their portal" : " by post"}
+                </label>
+                {manualState && "error" in manualState && (
+                  <p className="text-sm text-planal-danger-text" role="alert">
+                    {manualState.error}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={manualPending || !manualConfirmChecked}
+                  className={`w-full ${PRIMARY_BTN}`}
+                  aria-live="polite"
+                >
+                  {manualPending ? "Saving..." : "I've submitted this"}
+                </button>
+              </form>
+            </div>
           )}
-        </div>
+        </>
       )}
 
       {(!issuerMatch || issuerMatch.appeal_channel === "email") &&

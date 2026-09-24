@@ -443,6 +443,66 @@ export async function sendAppealAction(
   return { success: `Sent to ${to}.` };
 }
 
+// Covers issuers whose appeal_channel is 'portal' or 'post' — the app
+// can't submit anything on the user's behalf there (no email API to call),
+// so this only ever marks the case as submitted once the user tells us
+// they've done it themselves elsewhere. Mirrors sendAppealAction's payment
+// gate and case/appeal updates exactly, minus the actual send: without
+// this, portal/post issuers had no payment gate at all (the gate only
+// lived in the email branch) and no way to ever leave the "appeal ready"
+// state, so deadline tracking and outcome capture silently never kicked
+// in for them.
+export async function confirmManualAppealSubmissionAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
+  if (!organisation) {
+    const { data: paidCharge } = await supabase
+      .from("case_charges")
+      .select("id")
+      .eq("case_id", caseId)
+      .eq("charge_type", "individual_per_case")
+      .eq("status", "paid")
+      .maybeSingle();
+    if (!paidCharge) {
+      return { error: "Pay to confirm this appeal first." };
+    }
+  }
+
+  const { data: appeal } = await supabase
+    .from("appeals")
+    .select("draft_text, user_edited_text")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (!appeal?.draft_text && !appeal?.user_edited_text) {
+    return { error: "Assess the case and get a draft first." };
+  }
+
+  const { error: appealError } = await supabase
+    .from("appeals")
+    .update({
+      user_confirmed_at: new Date().toISOString(),
+      outcome: "pending",
+      send_method: "manual",
+    })
+    .eq("case_id", caseId);
+  if (appealError) return { error: "Could not update the case record. Please refresh." };
+
+  await supabase.from("cases").update({ status: "appealed" }).eq("id", caseId);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Marked as submitted." };
+}
+
 // Part 2.2 individual journey step 4 promises paying the fine as the
 // alternative to appealing it; nothing in the app could previously record
 // that a user chose to pay it themselves, off-platform (Planal is never
