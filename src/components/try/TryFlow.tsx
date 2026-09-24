@@ -4,14 +4,16 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { CameraCapture } from "@/components/capture/CameraCapture";
 import { CheckDetailsForm, type CheckDetailsFields } from "@/components/cases/CheckDetailsForm";
+import { AppealReasonForm } from "@/components/cases/AppealReasonForm";
 import type { AppealAssessment } from "@/lib/appeal";
+import type { AppealReasonCode } from "@/lib/appeal-reasons";
 import {
   startAnonymousDraftAction,
   runAnonymousAssessmentAction,
   confirmAsAuthenticatedUserAction,
 } from "@/app/try/actions";
 
-type Step = "capture" | "reading" | "checkDetails" | "assessing" | "preview" | "error";
+type Step = "capture" | "reading" | "checkDetails" | "reason" | "assessing" | "preview" | "error";
 
 const STRENGTH_LABEL: Record<AppealAssessment["strength"], string> = {
   weak: "Weak",
@@ -54,14 +56,19 @@ export function TryFlow({ isAuthenticated }: { isAuthenticated: boolean }) {
     setStep("checkDetails");
   }
 
-  async function handleConfirm(edited: CheckDetailsFields) {
-    if (!token) return;
+  function handleConfirm(edited: CheckDetailsFields) {
     setFields(edited);
+    setError(null);
+    setStep("reason");
+  }
+
+  async function handleReason(reason: AppealReasonCode, details: string | null) {
+    if (!token || !fields) return;
     setPending(true);
     setError(null);
 
     if (isAuthenticated) {
-      const result = await confirmAsAuthenticatedUserAction(token, edited);
+      const result = await confirmAsAuthenticatedUserAction(token, fields, reason, details);
       // A successful call redirects server-side and never returns here —
       // only a failure produces a value to react to.
       if (result && "error" in result) {
@@ -72,11 +79,11 @@ export function TryFlow({ isAuthenticated }: { isAuthenticated: boolean }) {
     }
 
     setStep("assessing");
-    const result = await runAnonymousAssessmentAction(token, edited);
+    const result = await runAnonymousAssessmentAction(token, fields, reason, details);
     setPending(false);
     if ("error" in result) {
       setError(result.error);
-      setStep("checkDetails");
+      setStep("reason");
       return;
     }
     setAssessment(result.assessment);
@@ -157,7 +164,29 @@ export function TryFlow({ isAuthenticated }: { isAuthenticated: boolean }) {
               initialFields={fields}
               thumbnailUrl={thumbnailUrl}
               onSubmit={handleConfirm}
-              submitLabel="Check my chances and write my appeal"
+              submitLabel="Continue"
+              pending={false}
+              error={error}
+            />
+          </div>
+        )}
+
+        {step === "reason" && fields && (
+          <div className="mt-6">
+            <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold">Why are you appealing?</h1>
+            <p className="mt-2 text-base text-planal-ink-muted">
+              Choose the closest reason. You don&apos;t need any proof now — if the issuer asks
+              for evidence, we&apos;ll tell you and help you send it.
+            </p>
+            <AppealReasonForm
+              issuerType={fields.issuerType}
+              ticket={{
+                referenceNumber: fields.referenceNumber,
+                vrm: fields.vrm,
+                date: fields.eventDatetime,
+                location: fields.locationText,
+              }}
+              onSubmit={handleReason}
               pending={pending}
               error={error}
             />

@@ -30,7 +30,7 @@ async function loadCaseContext(
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, contravention_code, location_text, event_datetime, amount_full, amount_discounted, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, location_text, event_datetime, amount_full, amount_discounted, user_stated_reason, user_reason_details, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -76,6 +76,7 @@ export async function requestAssessmentAction(
   const assessment = await assessAppeal({
     issuerType: ctx.caseRow.issuer_type,
     issuerName: ctx.caseRow.issuer_name,
+    referenceNumber: ctx.caseRow.reference_number,
     contraventionCode: ctx.caseRow.contravention_code,
     locationText: ctx.caseRow.location_text,
     eventDatetime: ctx.caseRow.event_datetime,
@@ -83,6 +84,8 @@ export async function requestAssessmentAction(
     amountDiscounted: ctx.caseRow.amount_discounted,
     vrm: ctx.vrm,
     evidenceTypes: ctx.evidenceTypes,
+    userStatedReason: ctx.caseRow.user_stated_reason,
+    userReasonDetails: ctx.caseRow.user_reason_details,
   });
 
   if (!assessment) {
@@ -112,6 +115,78 @@ export async function requestAssessmentAction(
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: "Assessment complete — review the draft below." };
+}
+
+// "Reason: X · Change" on the case/appeal screen (spec acceptance
+// criterion: changing the reason regenerates the draft). Only meaningful
+// before send — AssessmentPanel only renders the control while
+// appeal.user_confirmed_at is unset, but this is enforced here too rather
+// than trusted from the client.
+export async function changeAppealReasonAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const userStatedReason = String(formData.get("reason") || "");
+  const userReasonDetails = String(formData.get("details") || "").trim() || null;
+  if (!userStatedReason) return { error: "Choose a reason." };
+
+  const { data: existingAppeal } = await supabase
+    .from("appeals")
+    .select("user_confirmed_at")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (existingAppeal?.user_confirmed_at) {
+    return { error: "This appeal has already been sent — the reason can't be changed now." };
+  }
+
+  const { error: caseUpdateError } = await supabase
+    .from("cases")
+    .update({ user_stated_reason: userStatedReason, user_reason_details: userReasonDetails })
+    .eq("id", caseId);
+  if (caseUpdateError) return { error: "Could not save the reason. Please try again." };
+
+  const ctx = await loadCaseContext(supabase, caseId);
+  if (!ctx) return { error: "Case not found." };
+
+  const assessment = await assessAppeal({
+    issuerType: ctx.caseRow.issuer_type,
+    issuerName: ctx.caseRow.issuer_name,
+    referenceNumber: ctx.caseRow.reference_number,
+    contraventionCode: ctx.caseRow.contravention_code,
+    locationText: ctx.caseRow.location_text,
+    eventDatetime: ctx.caseRow.event_datetime,
+    amountFull: ctx.caseRow.amount_full,
+    amountDiscounted: ctx.caseRow.amount_discounted,
+    vrm: ctx.vrm,
+    evidenceTypes: ctx.evidenceTypes,
+    userStatedReason,
+    userReasonDetails,
+  });
+  if (!assessment) return { error: "Couldn't regenerate the draft. Please try again." };
+
+  const { error: upsertError } = await supabase.from("appeals").upsert(
+    {
+      case_id: caseId,
+      ai_strength_rating: assessment.strength,
+      ai_grounds_json: assessment.applicableGrounds,
+      ai_reasoning_text: assessment.reasoningText,
+      draft_text: assessment.draftText,
+      user_edited_text: null,
+      created_by: user.id,
+    },
+    { onConflict: "case_id" }
+  );
+  if (upsertError) return { error: "Could not save the new draft. Please try again." };
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Reason updated — your draft has been rewritten." };
 }
 
 // Individuals only — creates a pending case_charges row and redirects to

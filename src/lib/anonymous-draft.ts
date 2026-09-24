@@ -72,6 +72,8 @@ export type AnonymousDraftRow = {
   ai_grounds_json: AppealAssessment["applicableGrounds"] | null;
   ai_reasoning_text: string | null;
   draft_text: string | null;
+  user_stated_reason: string | null;
+  user_reason_details: string | null;
   claimed_at: string | null;
 };
 
@@ -90,6 +92,23 @@ export async function getAnonymousDraft(token: string): Promise<AnonymousDraftRo
 export async function updateAnonymousDraftFields(token: string, editedFields: PcnExtraction): Promise<void> {
   const admin = getSupabaseAdminClient();
   await admin.from("anonymous_drafts").update({ edited_fields_json: editedFields }).eq("token", token);
+}
+
+/** UI review "Why are you appealing?" step — persisted on the draft row so
+ * claimAnonymousDraft has it later regardless of which path claims the
+ * draft (immediate authenticated claim, or the later /signup round-trip
+ * for an anonymous visitor). Single source of truth: claimAnonymousDraft
+ * always reads it from here, never as a separate parameter. */
+export async function saveAnonymousReason(
+  token: string,
+  userStatedReason: string,
+  userReasonDetails: string | null
+): Promise<void> {
+  const admin = getSupabaseAdminClient();
+  await admin
+    .from("anonymous_drafts")
+    .update({ user_stated_reason: userStatedReason, user_reason_details: userReasonDetails })
+    .eq("token", token);
 }
 
 export async function saveAnonymousAssessment(
@@ -196,6 +215,8 @@ export async function claimAnonymousDraft(
       raw_ocr_json: fields,
       created_by: userId,
       details_confirmed_at: new Date().toISOString(),
+      user_stated_reason: draft.user_stated_reason,
+      user_reason_details: draft.user_reason_details,
     })
     .select("id")
     .single();

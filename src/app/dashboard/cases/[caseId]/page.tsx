@@ -48,7 +48,7 @@ export default async function CaseDetailPage({
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, user_stated_reason, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -228,6 +228,14 @@ export default async function CaseDetailPage({
                   priceLabel={priceLabel}
                   gmailDraftAvailable={gmailDraftAvailable}
                   issuerMatch={matchedIssuer}
+                  userStatedReason={caseRow.user_stated_reason}
+                  caseIssuerType={caseRow.issuer_type}
+                  ticket={{
+                    referenceNumber: caseRow.reference_number,
+                    vrm: vehicle?.vrm ?? null,
+                    date: caseRow.event_datetime,
+                    location: caseRow.location_text,
+                  }}
                 />
               </div>
             </>

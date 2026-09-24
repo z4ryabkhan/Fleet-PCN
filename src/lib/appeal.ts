@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { appealReasonLabel, reasonByCode, renderReasonBody } from "@/lib/appeal-reasons";
 
 // AI appeal-strength assessment + draft generation — Part 2.4 of
 // PLANAL_MASTER_PLAN.md. Returns null if no API key is configured, same
@@ -110,6 +111,7 @@ export function groundLabel(ground: AppealGround): string {
 type CaseContext = {
   issuerType: string | null;
   issuerName: string | null;
+  referenceNumber?: string | null;
   contraventionCode: string | null;
   locationText: string | null;
   eventDatetime: string | null;
@@ -117,6 +119,8 @@ type CaseContext = {
   amountDiscounted: number | null;
   vrm: string;
   evidenceTypes: string[];
+  userStatedReason?: string | null;
+  userReasonDetails?: string | null;
 };
 
 const SYSTEM_PROMPT = `You assess UK parking/traffic penalty notice (PCN) appeals for Planal. Reason over these grounds only — do not invent grounds outside this list: ${APPEAL_GROUNDS.map((g) => GROUND_LABELS[g]).join(" · ")}.
@@ -127,7 +131,8 @@ Rules, non-negotiable:
 - Only cite grounds that are actually plausible given the case facts provided — don't pad the list.
 - For each applicable ground, state what evidence would support it, and be honest if that evidence hasn't been provided yet.
 - The draft you write is for the user to review, edit, and submit themselves — never write as if you are submitting it, never address it as if the submission has already happened.
-- If the facts given are too thin to assess properly, say so plainly in reasoningText and rate conservatively (weak) rather than inventing supporting detail.`;
+- If the facts given are too thin to assess properly, say so plainly in reasoningText and rate conservatively (weak) rather than inventing supporting detail.
+- If the user has stated their own reason for appealing, treat it as their account of events, not a fact you've independently verified. When it's plausible given the other case facts, build the draft around it as the primary ground. When it conflicts with the facts provided (e.g. they say they weren't the owner but no ownership-transfer evidence exists), say so honestly in reasoningText rather than silently ignoring the conflict or fabricating support for it.`;
 
 /**
  * Assesses appeal strength and drafts appeal text. Returns null if no API
@@ -152,6 +157,18 @@ Event date/time: ${ctx.eventDatetime ?? "not recorded"}
 Full amount: ${ctx.amountFull != null ? `£${ctx.amountFull}` : "not recorded"}
 Discounted amount: ${ctx.amountDiscounted != null ? `£${ctx.amountDiscounted}` : "not recorded"}
 Evidence already uploaded: ${ctx.evidenceTypes.length > 0 ? ctx.evidenceTypes.join(", ") : "none yet"}
+User's stated reason for appealing: ${appealReasonLabel(ctx.userStatedReason) ?? "not given"}
+Grounded starting sentence for that reason, filled in with this case's own facts (use this as your factual anchor — polish the wording, but introduce nothing beyond it, the other facts above, and the user's own text below): ${
+    ctx.userStatedReason && reasonByCode(ctx.userStatedReason)
+      ? renderReasonBody(reasonByCode(ctx.userStatedReason)!, {
+          referenceNumber: ctx.referenceNumber,
+          vrm: ctx.vrm,
+          date: ctx.eventDatetime,
+          location: ctx.locationText,
+        })
+      : "not applicable"
+  }
+Additional details the user gave: ${ctx.userReasonDetails?.trim() || "none"}
 `.trim();
 
   try {

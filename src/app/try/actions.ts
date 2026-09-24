@@ -10,9 +10,11 @@ import {
   createAnonymousDraft,
   getAnonymousDraft,
   saveAnonymousAssessment,
+  saveAnonymousReason,
   updateAnonymousDraftFields,
   claimAnonymousDraft,
 } from "@/lib/anonymous-draft";
+import type { AppealReasonCode } from "@/lib/appeal-reasons";
 
 export type StartDraftResult =
   | { error: string }
@@ -57,18 +59,25 @@ export async function startAnonymousDraftAction(formData: FormData): Promise<Sta
 export type AssessDraftResult = { error: string } | { assessment: NonNullable<Awaited<ReturnType<typeof assessAppeal>>> };
 
 /** UI review item 4: runs automatically once the visitor confirms Check
- * Details, on the same stateless draft — still nothing written to `cases`
- * yet. */
+ * Details and picks a reason, on the same stateless draft — still nothing
+ * written to `cases` yet. The stated reason is what the user says
+ * happened; assessAppeal treats it as an input to ground the draft in,
+ * never as a fact it invents evidence for. */
 export async function runAnonymousAssessmentAction(
   token: string,
-  editedFields: PcnExtraction
+  editedFields: PcnExtraction,
+  userStatedReason: AppealReasonCode,
+  userReasonDetails: string | null
 ): Promise<AssessDraftResult> {
   const draft = await getAnonymousDraft(token);
   if (!draft) return { error: "This session has expired — please start again." };
 
+  await saveAnonymousReason(token, userStatedReason, userReasonDetails);
+
   const assessment = await assessAppeal({
     issuerType: editedFields.issuerType,
     issuerName: editedFields.issuerName,
+    referenceNumber: editedFields.referenceNumber,
     contraventionCode: editedFields.contraventionCode,
     locationText: editedFields.locationText,
     eventDatetime: editedFields.eventDatetime,
@@ -76,6 +85,8 @@ export async function runAnonymousAssessmentAction(
     amountDiscounted: editedFields.amountDiscounted,
     vrm: editedFields.vrm ?? "",
     evidenceTypes: ["ticket_photo"],
+    userStatedReason,
+    userReasonDetails,
   });
 
   if (!assessment) return { error: "AI appeal assessment isn't available right now — please try again shortly." };
@@ -88,10 +99,14 @@ export async function runAnonymousAssessmentAction(
  * isAuthenticated before ever calling this) — an already-signed-up person
  * doesn't need the pre-signup preview at all, so this claims straight into
  * a real case and sends them to it. Anonymous visitors go through
- * /signup?draft=... instead — see src/app/signup/actions.ts. */
+ * /signup?draft=... instead — see src/app/signup/actions.ts. The reason is
+ * saved onto the draft first so claimAnonymousDraft picks it up the same
+ * way it would for an anonymous claim, one code path either way. */
 export async function confirmAsAuthenticatedUserAction(
   token: string,
-  editedFields: PcnExtraction
+  editedFields: PcnExtraction,
+  userStatedReason: AppealReasonCode,
+  userReasonDetails: string | null
 ): Promise<{ error: string } | never> {
   const supabase = await getSupabaseServerClient();
   const {
@@ -100,6 +115,7 @@ export async function confirmAsAuthenticatedUserAction(
   if (!user) return { error: "Your session has expired — please sign in again." };
 
   await updateAnonymousDraftFields(token, editedFields);
+  await saveAnonymousReason(token, userStatedReason, userReasonDetails);
   const caseId = await claimAnonymousDraft(supabase, token, user.id);
   if (!caseId) return { error: "This session has expired — please start again from the ticket photo." };
 

@@ -5,12 +5,15 @@ import {
   saveDraftEditAction,
   sendAppealAction,
   confirmManualAppealSubmissionAction,
+  changeAppealReasonAction,
   setOutcomeAction,
   startIndividualCasePaymentAction,
   createGmailDraftAction,
   type CaseDetailActionState,
 } from "@/app/dashboard/cases/[caseId]/actions";
 import { groundLabel, type AppealGround } from "@/lib/appeal";
+import { appealReasonLabel, type AppealReasonCode } from "@/lib/appeal-reasons";
+import { AppealReasonForm } from "@/components/cases/AppealReasonForm";
 import { CheckIcon } from "@/components/ui/icons";
 
 const initialState: CaseDetailActionState = undefined;
@@ -65,6 +68,9 @@ export function AssessmentPanel({
   priceLabel,
   gmailDraftAvailable,
   issuerMatch,
+  userStatedReason,
+  caseIssuerType,
+  ticket,
 }: {
   caseId: string;
   appeal: Appeal;
@@ -74,6 +80,9 @@ export function AssessmentPanel({
   priceLabel: string | null;
   gmailDraftAvailable: boolean;
   issuerMatch: IssuerMatch;
+  userStatedReason: string | null;
+  caseIssuerType: string | null;
+  ticket: { referenceNumber: string | null; vrm: string | null; date: string | null; location: string | null };
 }) {
   const [payState, payAction, payPending] = useActionState(
     startIndividualCasePaymentAction,
@@ -95,6 +104,28 @@ export function AssessmentPanel({
   );
   const [confirmChecked, setConfirmChecked] = useState(false);
   const [manualConfirmChecked, setManualConfirmChecked] = useState(false);
+  const [reasonEditorOpen, setReasonEditorOpen] = useState(false);
+  const [reasonPending, setReasonPending] = useState(false);
+  const [reasonError, setReasonError] = useState<string | null>(null);
+
+  // Spec acceptance criterion: changing the reason regenerates the draft.
+  // Called directly rather than via useActionState since AppealReasonForm
+  // owns its own <form> and hands back plain values, not a FormData submit.
+  async function handleReasonChange(reason: AppealReasonCode, details: string | null) {
+    setReasonPending(true);
+    setReasonError(null);
+    const fd = new FormData();
+    fd.set("caseId", caseId);
+    fd.set("reason", reason);
+    if (details) fd.set("details", details);
+    const result = await changeAppealReasonAction(undefined, fd);
+    setReasonPending(false);
+    if (result && "error" in result) {
+      setReasonError(result.error);
+      return;
+    }
+    setReasonEditorOpen(false);
+  }
 
   const isConfirmed = Boolean(appeal.user_confirmed_at);
   const currentText = appeal.user_edited_text ?? appeal.draft_text ?? "";
@@ -246,6 +277,29 @@ export function AssessmentPanel({
         </div>
       )}
 
+      <div className="mt-4 flex items-center justify-between gap-2 text-sm text-planal-ink-muted">
+        <span>Reason: {appealReasonLabel(userStatedReason) ?? "Not given"}</span>
+        <button
+          type="button"
+          onClick={() => setReasonEditorOpen((v) => !v)}
+          className="min-h-11 font-semibold text-planal-brand-dark hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand"
+        >
+          {reasonEditorOpen ? "Cancel" : "Change"}
+        </button>
+      </div>
+
+      {reasonEditorOpen && (
+        <div className="mt-2 rounded-2xl border border-planal-border bg-planal-bg p-4">
+          <AppealReasonForm
+            issuerType={caseIssuerType}
+            ticket={ticket}
+            onSubmit={handleReasonChange}
+            pending={reasonPending}
+            error={reasonError}
+          />
+        </div>
+      )}
+
       <div className="mt-6">
         <label htmlFor="draftText" className="text-sm font-medium text-planal-ink">
           Draft appeal text
@@ -253,6 +307,7 @@ export function AssessmentPanel({
         <form action={draftAction} className="mt-2 space-y-2">
           <input type="hidden" name="caseId" value={caseId} />
           <textarea
+            key={currentText}
             id="draftText"
             name="editedText"
             defaultValue={currentText}
