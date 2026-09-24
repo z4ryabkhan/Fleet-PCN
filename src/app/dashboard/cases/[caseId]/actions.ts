@@ -8,7 +8,10 @@ import { ensureAccountProvisioned } from "@/lib/account";
 import { assessAppeal } from "@/lib/appeal";
 import { decryptToken, encryptToken } from "@/lib/crypto";
 import { refreshGoogleAccessToken, GMAIL_COMPOSE_SCOPE } from "@/lib/google-oauth";
+import { refreshMicrosoftAccessToken, GRAPH_MAIL_SEND_SCOPE } from "@/lib/microsoft-oauth";
 import { createGmailAppealDraft } from "@/lib/gmail-drafts";
+import { sendGmailAppeal, type EmailAttachment } from "@/lib/gmail-send";
+import { sendOutlookAppeal } from "@/lib/outlook-send";
 import {
   getOrCreateBillingAccount,
   createIndividualCaseCheckoutSession,
@@ -287,11 +290,14 @@ export async function createGmailDraftAction(
   return { success: "Draft created in your Gmail — check your Drafts folder, add the recipient, and send when you're ready." };
 }
 
-// This marks the case "appealed" in Planal only — Part 9 rule 2: never
-// auto-submit into a third-party portal. The user has already been told,
-// immediately before this click, that they must submit the text
-// themselves. Nothing here reaches any external system.
-export async function confirmAppealAction(
+// Actually sends the appeal — build brief section 3 step 6. Superseded
+// confirmAppealAction's mark-only behaviour once Zaryab confirmed
+// (2026-09) that clicking Send is itself the Part 9 rule 2 confirmation
+// this needs, for both the individual and fleet paths (createGmailDraftAction
+// stays individual-only, but sending isn't limited to that). The recipient
+// is always either typed by the user or read from a verified issuers row —
+// never guessed — and a failed send is never reported as sent.
+export async function sendAppealAction(
   _prevState: CaseDetailActionState,
   formData: FormData
 ): Promise<CaseDetailActionState> {
@@ -302,18 +308,133 @@ export async function confirmAppealAction(
   if (!user) return { error: "You must be signed in." };
 
   const caseId = String(formData.get("caseId") || "");
+  const to = String(formData.get("to") || "").trim();
+  if (!to || !to.includes("@")) return { error: "Enter a valid recipient email address." };
+
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select("issuer_name, reference_number, vehicle_id, vehicles(vrm, owner_type, owner_user_id, owner_organisation_id)")
+    .eq("id", caseId)
+    .single();
+  if (!caseRow) return { error: "Case not found." };
+
+  const { data: appeal } = await supabase
+    .from("appeals")
+    .select("draft_text, user_edited_text")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  const bodyText = appeal?.user_edited_text ?? appeal?.draft_text;
+  if (!bodyText) return { error: "Assess the case and get a draft first." };
+
+  const vehicle = caseRow.vehicles as unknown as {
+    vrm: string;
+    owner_type: "individual" | "organisation";
+    owner_user_id: string | null;
+    owner_organisation_id: string | null;
+  } | null;
+  if (!vehicle) return { error: "Case has no vehicle." };
+
+  const { data: connection } = await supabase
+    .from("email_connections")
+    .select("id, provider, encrypted_access_token, encrypted_refresh_token, token_expires_at, scopes")
+    .eq("owner_type", vehicle.owner_type)
+    .eq(
+      vehicle.owner_type === "individual" ? "owner_user_id" : "owner_organisation_id",
+      vehicle.owner_type === "individual" ? vehicle.owner_user_id : vehicle.owner_organisation_id
+    )
+    .eq("status", "connected")
+    .maybeSingle();
+
+  if (!connection) {
+    return { error: "Connect Gmail or Outlook first, from the Connected email page." };
+  }
+
+  const requiredScope = connection.provider === "gmail" ? GMAIL_COMPOSE_SCOPE : GRAPH_MAIL_SEND_SCOPE;
+  if (!connection.scopes?.includes(requiredScope)) {
+    return {
+      error: `Your ${connection.provider === "gmail" ? "Gmail" : "Outlook"} connection needs to be renewed to allow sending — revoke it and reconnect from the Connected email page.`,
+    };
+  }
+
+  let accessToken = decryptToken(connection.encrypted_access_token);
+  if (new Date(connection.token_expires_at).getTime() - Date.now() < 5 * 60_000) {
+    try {
+      const refreshToken = decryptToken(connection.encrypted_refresh_token);
+      if (connection.provider === "gmail") {
+        const refreshed = await refreshGoogleAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      } else {
+        const refreshed = await refreshMicrosoftAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            encrypted_refresh_token: encryptToken(refreshed.refreshToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      }
+    } catch (err) {
+      console.error("Failed to refresh email access token", err);
+      return { error: "Your email connection has expired. Please reconnect it." };
+    }
+  }
+
+  const { data: evidenceRows } = await supabase
+    .from("evidence")
+    .select("file_ref")
+    .eq("case_id", caseId)
+    .order("uploaded_at", { ascending: true });
+
+  const attachments: EmailAttachment[] = [];
+  for (const row of evidenceRows ?? []) {
+    const { data: blob, error } = await supabase.storage.from("case-evidence").download(row.file_ref);
+    if (error || !blob) continue;
+    const ext = row.file_ref.toLowerCase().split(".").pop() ?? "";
+    const mimeType = ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : "image/jpeg";
+    attachments.push({
+      filename: row.file_ref.split("/").pop() ?? "evidence",
+      mimeType,
+      data: Buffer.from(await blob.arrayBuffer()),
+    });
+  }
+
+  const subject = `PCN appeal — ${vehicle.vrm} — ${caseRow.issuer_name ?? "issuer"}${
+    caseRow.reference_number ? ` — ref ${caseRow.reference_number}` : ""
+  }`;
+
+  const sent =
+    connection.provider === "gmail"
+      ? await sendGmailAppeal(accessToken, { to, subject, bodyText, attachments })
+      : (await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments })) ? {} : null;
+
+  if (!sent) {
+    return { error: "Could not send the email. Please try again, or use the PDF pack instead." };
+  }
 
   const { error: appealError } = await supabase
     .from("appeals")
-    .update({ user_confirmed_at: new Date().toISOString(), outcome: "pending" })
+    .update({
+      user_confirmed_at: new Date().toISOString(),
+      outcome: "pending",
+      sent_to_email: to,
+      send_method: connection.provider,
+    })
     .eq("case_id", caseId);
-
-  if (appealError) return { error: "Could not confirm. Please try again." };
+  if (appealError) return { error: "Sent, but could not update the case record. Please refresh." };
 
   await supabase.from("cases").update({ status: "appealed" }).eq("id", caseId);
 
   revalidatePath(`/dashboard/cases/${caseId}`);
-  return { success: "Marked as appealed. Remember: you still need to submit this yourself." };
+  return { success: `Sent to ${to}.` };
 }
 
 // Part 2.2 individual journey step 4 promises paying the fine as the
