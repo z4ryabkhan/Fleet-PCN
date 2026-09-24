@@ -70,8 +70,17 @@ const AssessmentSchema = z.object({
 
 export type AppealAssessment = z.infer<typeof AssessmentSchema>;
 
-/** Which adjudicator has the final say — for the mandatory disclaimer (Part 2.4). */
-export function getAdjudicatorName(issuerType: string | null): string {
+/** Which adjudicator has the final say — for the mandatory disclaimer (Part
+ * 2.4). UI review item 6: this wording must come from the issuer directory,
+ * not a hard-coded switch — so a verified issuers.tribunal_name takes
+ * priority whenever the case's issuer has a directory match. The
+ * issuer_type switch below only fires while that issuer has no directory
+ * entry yet (the directory starts empty), and is itself just the general
+ * London-vs-elsewhere-vs-private-operator legal structure, not made-up
+ * copy about a specific issuer. */
+export function getAdjudicatorName(issuerType: string | null, directoryTribunalName?: string | null): string {
+  if (directoryTribunalName) return directoryTribunalName;
+
   switch (issuerType) {
     case "tfl_pcn":
     case "congestion_charge":
@@ -85,9 +94,13 @@ export function getAdjudicatorName(issuerType: string | null): string {
 }
 
 /** The mandatory copy Part 2.4 requires alongside every assessment. */
-export function mandatoryDisclaimer(strength: string, issuerType: string | null): string {
+export function mandatoryDisclaimer(
+  strength: string,
+  issuerType: string | null,
+  directoryTribunalName?: string | null
+): string {
   const label = strength.charAt(0).toUpperCase() + strength.slice(1);
-  return `Appeal strength: ${label}. This is our assessment based on the evidence provided, not a guarantee. ${getAdjudicatorName(issuerType)} makes the final decision.`;
+  return `Appeal strength: ${label}. This is our assessment based on the evidence provided, not a guarantee. ${getAdjudicatorName(issuerType, directoryTribunalName)} makes the final decision.`;
 }
 
 export function groundLabel(ground: AppealGround): string {

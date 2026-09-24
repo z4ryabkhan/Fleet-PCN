@@ -7,9 +7,11 @@ const initialState: LoginState = undefined;
 
 const LABEL = "block text-sm font-medium text-planal-ink";
 const INPUT =
-  "mt-1 w-full rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5 text-[15px] text-planal-ink placeholder:text-planal-ink-muted focus:border-planal-brand focus:outline-none focus:ring-2 focus:ring-planal-brand-tint";
+  "mt-1 w-full min-h-11 rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5 text-base text-planal-ink placeholder:text-planal-ink-muted focus:border-planal-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1";
 const PRIMARY_BTN =
-  "w-full rounded-2xl bg-planal-brand px-4 py-3 font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60";
+  "min-h-11 w-full rounded-2xl bg-planal-brand px-4 py-3 font-semibold text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand-dark focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+const SECONDARY_LINK_BTN =
+  "flex min-h-11 w-full items-center justify-center text-center text-sm text-planal-ink-muted underline hover:text-planal-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1";
 
 export function LoginForm({ next }: { next?: string }) {
   const [mode, setMode] = useState<"password" | "magic">("password");
@@ -32,17 +34,17 @@ export function LoginForm({ next }: { next?: string }) {
           <input id="email-magic" name="email" type="email" required maxLength={320} className={INPUT} />
         </div>
 
-        {magicState?.error && <p className="text-sm text-planal-danger-text">{magicState.error}</p>}
+        {magicState?.error && (
+          <p className="text-sm text-planal-danger-text" role="alert">
+            {magicState.error}
+          </p>
+        )}
 
         <button type="submit" disabled={magicPending} className={PRIMARY_BTN}>
           {magicPending ? "Sending..." : "Send magic link"}
         </button>
 
-        <button
-          type="button"
-          onClick={() => setMode("password")}
-          className="w-full text-center text-xs text-planal-ink-muted underline hover:text-planal-ink"
-        >
+        <button type="button" onClick={() => setMode("password")} className={SECONDARY_LINK_BTN}>
           Use a password instead
         </button>
       </form>
@@ -65,24 +67,24 @@ export function LoginForm({ next }: { next?: string }) {
         <input id="password" name="password" type="password" required className={INPUT} />
       </div>
 
-      {passwordState?.error && <p className="text-sm text-planal-danger-text">{passwordState.error}</p>}
+      {passwordState?.error && (
+        <p className="text-sm text-planal-danger-text" role="alert">
+          {passwordState.error}
+        </p>
+      )}
 
       <button type="submit" disabled={passwordPending} className={PRIMARY_BTN}>
         {passwordPending ? "Logging in..." : "Log in"}
       </button>
 
-      <button
-        type="button"
-        onClick={() => setMode("magic")}
-        className="w-full text-center text-xs text-planal-ink-muted underline hover:text-planal-ink"
-      >
+      <button type="button" onClick={() => setMode("magic")} className={SECONDARY_LINK_BTN}>
         Email me a magic link instead
       </button>
 
-      <p className="text-center text-xs text-planal-ink-muted">
+      <p className="text-center text-sm text-planal-ink-muted">
         No account yet?{" "}
         <a href="/signup" className="font-medium text-planal-brand-dark underline">
-          Sign up
+          Create account
         </a>
         .
       </p>

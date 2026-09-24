@@ -11,12 +11,20 @@ export function MarkPaidButton({ caseId }: { caseId: string }) {
   return (
     <form action={formAction} className="mt-2">
       <input type="hidden" name="caseId" value={caseId} />
-      {state && "error" in state && <p className="mb-2 text-sm text-planal-danger-text">{state.error}</p>}
-      {state && "success" in state && <p className="mb-2 text-sm text-planal-brand-dark">{state.success}</p>}
+      {state && "error" in state && (
+        <p className="mb-2 text-sm text-planal-danger-text" role="alert">
+          {state.error}
+        </p>
+      )}
+      {state && "success" in state && (
+        <p className="mb-2 text-sm text-planal-brand-dark" role="status">
+          {state.success}
+        </p>
+      )}
       <button
         type="submit"
         disabled={pending}
-        className="rounded-lg border border-planal-border px-3 py-1.5 text-xs text-planal-ink-muted hover:bg-planal-bg disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-h-11 rounded-lg border border-planal-border px-3 py-1.5 text-sm text-planal-ink-muted hover:bg-planal-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Saving..." : "I paid this — mark as paid"}
       </button>

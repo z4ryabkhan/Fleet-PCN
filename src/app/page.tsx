@@ -1,6 +1,28 @@
 import { WaitlistForm } from "@/components/WaitlistForm";
+import { CameraIcon, DocumentCheckIcon, SendIcon } from "@/components/ui/icons";
+import { getIndividualCasePriceLabel } from "@/lib/billing";
 
-export default function Home() {
+const STEPS = [
+  {
+    Icon: CameraIcon,
+    title: "Snap",
+    body: "Photograph the ticket on your phone. No account needed yet.",
+  },
+  {
+    Icon: DocumentCheckIcon,
+    title: "Check",
+    body: "Confirm the registration, dates, location and amount we read from the photo.",
+  },
+  {
+    Icon: SendIcon,
+    title: "Send",
+    body: "We draft the appeal for the right issuer. You review it and send it from your own email.",
+  },
+];
+
+export default async function Home() {
+  const priceLabel = await getIndividualCasePriceLabel();
+
   return (
     <div className="min-h-full bg-planal-bg text-planal-ink">
       <header className="border-b border-planal-border">
@@ -9,89 +31,59 @@ export default function Home() {
             Planal
           </span>
           <div className="flex items-center gap-4">
-            <a href="/login" className="text-sm font-medium text-planal-ink-muted hover:text-planal-ink">
+            <a
+              href="/login"
+              className="flex min-h-11 items-center text-sm font-medium text-planal-ink-muted hover:text-planal-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1"
+            >
               Log in
             </a>
             <a
               href="/signup"
-              className="rounded-xl bg-planal-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              className="flex min-h-11 items-center rounded-xl bg-planal-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand-dark focus-visible:ring-offset-2"
             >
-              Sign up
+              Create account
             </a>
           </div>
         </div>
       </header>
 
-      <section className="mx-auto max-w-5xl px-6 pb-16 pt-20 text-center">
-        <h1 className="mx-auto max-w-3xl font-[family-name:var(--font-display)] text-4xl font-bold tracking-tight sm:text-5xl">
-          By the time you open the post, the discount window is already smaller.
+      <section className="mx-auto max-w-3xl px-6 pb-16 pt-20 text-center">
+        <h1 className="font-[family-name:var(--font-display)] text-4xl font-bold tracking-tight sm:text-5xl">
+          Photograph your parking ticket. We&apos;ll appeal it for you.
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-planal-ink-muted">
-          Parking and traffic penalty notices arrive by post or email, and most people don&apos;t
-          see them for days. Planal watches for PCN correspondence the moment it lands, tells you
-          in plain English what it means and when it&apos;s due, and — when it&apos;s worth
-          fighting — helps you draft an appeal, with you always in control of what actually gets
-          sent.
+        <p className="mx-auto mt-6 max-w-xl text-lg text-planal-ink-muted">
+          See what we read from the ticket and whether it&apos;s worth appealing before you sign
+          up for anything. You only create an account and pay when you&apos;re ready to send.
         </p>
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-10 flex justify-center">
           <a
-            href="/signup"
-            className="rounded-xl bg-planal-brand px-6 py-3 text-sm font-semibold text-white hover:opacity-90"
+            href="/try"
+            className="flex min-h-11 items-center rounded-xl bg-planal-brand px-6 py-3 text-base font-semibold text-white hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand-dark focus-visible:ring-offset-2"
           >
-            Sign up free
+            Check my chances and write my appeal
           </a>
-          <a
-            href="#waitlist"
-            className="rounded-xl border border-planal-border bg-planal-surface px-6 py-3 text-sm font-medium text-planal-ink hover:bg-planal-bg"
-          >
-            Or join the waitlist
-          </a>
-        </div>
-        <div className="mt-8 flex justify-center gap-3 text-sm text-planal-ink-muted">
-          <span>Built for UK vehicle keepers.</span>
-          <span aria-hidden>·</span>
-          <span>Fleets first, individual drivers welcome.</span>
         </div>
       </section>
 
       <section className="border-y border-planal-border bg-planal-surface">
-        <div className="mx-auto max-w-5xl px-6 py-16">
-          <h2 className="text-center font-[family-name:var(--font-display)] text-2xl font-bold">
-            The problem, honestly
-          </h2>
-          <div className="mt-10 grid gap-8 sm:grid-cols-3">
-            <div>
-              <p className="font-[family-name:var(--font-display)] text-3xl font-bold text-planal-brand-dark">
-                ~20-26m
-              </p>
-              <p className="mt-2 text-sm text-planal-ink-muted">
-                PCNs issued across the UK every year, worth roughly £1.76-2.15bn.
-              </p>
-            </div>
-            <div>
-              <p className="font-[family-name:var(--font-display)] text-3xl font-bold text-planal-brand-dark">
-                ~3.2%
-              </p>
-              <p className="mt-2 text-sm text-planal-ink-muted">
-                are ever formally appealed — despite appeal success rates of 38-64% depending on
-                the tribunal.
-              </p>
-            </div>
-            <div>
-              <p className="font-[family-name:var(--font-display)] text-3xl font-bold text-planal-brand-dark">
-                14 / 28
-              </p>
-              <p className="mt-2 text-sm text-planal-ink-muted">
-                days is all you typically get for the discount window and the escalation
-                deadline. Miss it in a pile of post and it&apos;s gone.
-              </p>
-            </div>
-          </div>
-          <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-planal-ink-muted">
-            To be clear about what this is: Planal watches the correspondence that&apos;s already
-            been sent to you, by email or post. No UK system — not DVLA, not TfL, not any
-            council or private operator — lets you search a registration on demand for tickets
-            you haven&apos;t been notified about yet, and Planal doesn&apos;t claim to either.
+        <div className="mx-auto max-w-4xl px-6 py-16">
+          <ol className="grid gap-8 sm:grid-cols-3">
+            {STEPS.map(({ Icon, title, body }, i) => (
+              <li key={title} className="text-center">
+                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-planal-brand-tint text-planal-brand-dark">
+                  <Icon className="h-6 w-6" />
+                </span>
+                <p className="mt-4 font-[family-name:var(--font-display)] text-lg font-bold">
+                  {i + 1}. {title}
+                </p>
+                <p className="mt-2 text-sm text-planal-ink-muted">{body}</p>
+              </li>
+            ))}
+          </ol>
+          <p className="mx-auto mt-12 max-w-2xl text-center text-sm text-planal-ink-muted">
+            Planal reads the ticket you photograph and drafts an appeal against the real issuer
+            &mdash; it doesn&apos;t search for tickets you haven&apos;t been given yet, and it
+            never sends anything without you reviewing it first.
           </p>
         </div>
       </section>
@@ -115,7 +107,7 @@ export default function Home() {
               <li>One dashboard across your whole fleet, sorted by deadline</li>
               <li>Driver attribution and recharge</li>
             </ul>
-            <p className="mt-4 text-xs text-planal-ink-muted">
+            <p className="mt-4 text-sm text-planal-ink-muted">
               This is a starting hypothesis, not a locked price — tell us what you&apos;d
               actually sign at.
             </p>
@@ -125,12 +117,12 @@ export default function Home() {
               Individual drivers
             </p>
             <p className="mt-3 font-[family-name:var(--font-display)] text-2xl font-bold">
-              Free<span className="text-base font-normal text-planal-ink-muted"> monitoring</span>
+              Free<span className="text-base font-normal text-planal-ink-muted"> to check</span>
             </p>
-            <p className="mt-1 text-sm text-planal-ink-muted">pay only if you want appeal support</p>
+            <p className="mt-1 text-sm text-planal-ink-muted">pay only when you send an appeal</p>
             <ul className="mt-4 space-y-2 text-sm text-planal-ink">
-              <li>Free ticket detection, dashboard, deadline reminders</li>
-              <li>£9.99–£14.99 per case to unlock AI appeal assessment and a drafted appeal</li>
+              <li>Free photo capture, chances check, and drafted appeal</li>
+              <li>{priceLabel ?? "A small fee"} per case, charged only when you send it</li>
               <li>You always review and confirm before anything is submitted</li>
             </ul>
           </div>
@@ -140,11 +132,11 @@ export default function Home() {
       <section id="waitlist" className="border-t border-planal-border bg-planal-surface">
         <div className="mx-auto max-w-xl px-6 py-16">
           <h2 className="text-center font-[family-name:var(--font-display)] text-2xl font-bold">
-            Not ready to sign up? Join the waitlist
+            Running a fleet? Join the waitlist
           </h2>
           <p className="mt-3 text-center text-sm text-planal-ink-muted">
-            We&apos;re talking to real fleets and drivers before we build the rest. Tell us a
-            little about how you handle PCNs today and we&apos;ll be in touch.
+            We&apos;re talking to real fleets before we build the rest. Tell us a little about how
+            you handle PCNs today and we&apos;ll be in touch.
           </p>
           <div className="mt-8">
             <WaitlistForm />
@@ -153,7 +145,7 @@ export default function Home() {
       </section>
 
       <footer className="border-t border-planal-border">
-        <div className="mx-auto max-w-5xl px-6 py-8 text-center text-xs text-planal-ink-muted">
+        <div className="mx-auto max-w-5xl px-6 py-8 text-center text-sm text-planal-ink-muted">
           <p>
             Planal never submits an appeal on your behalf without your explicit confirmation, and
             never claims to find a ticket you haven&apos;t already been notified about.

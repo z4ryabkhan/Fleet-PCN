@@ -32,8 +32,16 @@ async function applyVesLookup(
 
 // Self-attested for v1: there is no reviewer/admin-approval role or queue
 // anywhere in the master plan's feature list, so verification is marked
-// "verified" as soon as a document is uploaded rather than left stuck at
-// "pending" forever. Revisit if fraud becomes a real concern.
+// "verified" immediately rather than left stuck at "pending" forever.
+//
+// UI review item 1: the document is now optional for individuals —
+// verification happens either way (self-attested), a document just gets
+// attached as extra backing if the person has one handy. This removes the
+// friction the review flagged; fleet/organisation vehicles are untouched
+// and still go through submitOrgVerificationAction's document-required
+// flow, since liability transfer for a fleet has real stakes a self-attest
+// doesn't cover. Revisit the individual side too if fraud becomes a real
+// concern.
 export async function addIndividualVehicleAction(
   _prevState: VehicleActionState,
   formData: FormData
@@ -49,23 +57,19 @@ export async function addIndividualVehicleAction(
   const file = formData.get("document") as File | null;
 
   if (!vrm) return { error: "Please enter a registration number." };
-  if (!["v5c", "insurance", "lease"].includes(documentType)) {
-    return { error: "Please choose a document type." };
-  }
-  if (!file || file.size === 0) {
-    return { error: "Please upload a document." };
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    return { error: "File is too large (max 10MB)." };
-  }
 
-  const path = `individual/${user.id}/${Date.now()}-${file.name}`;
-  const { error: uploadError } = await supabase.storage
-    .from("verification-documents")
-    .upload(path, file);
-
-  if (uploadError) {
-    return { error: "Could not upload your document. Please try again." };
+  let path: string | null = null;
+  if (file && file.size > 0) {
+    if (file.size > 10 * 1024 * 1024) {
+      return { error: "File is too large (max 10MB)." };
+    }
+    path = `individual/${user.id}/${Date.now()}-${file.name}`;
+    const { error: uploadError } = await supabase.storage
+      .from("verification-documents")
+      .upload(path, file);
+    if (uploadError) {
+      return { error: "Could not upload your document. Please try again." };
+    }
   }
 
   const { data: vehicle, error: insertError } = await supabase
@@ -76,7 +80,7 @@ export async function addIndividualVehicleAction(
       owner_user_id: user.id,
       created_by: user.id,
       ownership_verification_status: "verified",
-      ownership_verification_method: documentType,
+      ownership_verification_method: path ? documentType || "other" : "self_attested_no_document",
       ownership_doc_ref: path,
     })
     .select("id")

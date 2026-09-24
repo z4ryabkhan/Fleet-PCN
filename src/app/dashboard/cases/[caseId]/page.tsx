@@ -4,11 +4,14 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
 import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
+import { AutoAssess } from "@/components/appeal/AutoAssess";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
 import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
 import { CaseTimeline } from "@/components/cases/CaseTimeline";
+import { PayOrAppealChoice } from "@/components/cases/PayOrAppealChoice";
 import { formatCaseSummary } from "@/lib/case-summary";
 import { formatAuditAction } from "@/lib/audit-log";
+import { getIndividualCasePriceLabel } from "@/lib/billing";
 
 export const metadata = { title: "Case — Planal" };
 
@@ -75,7 +78,7 @@ export default async function CaseDetailPage({
       supabase
         .from("appeals")
         .select(
-          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at"
+          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at, sent_to_email, send_method"
         )
         .eq("case_id", caseId)
         .maybeSingle(),
@@ -114,7 +117,7 @@ export default async function CaseDetailPage({
       caseRow.issuer_name
         ? supabase
             .from("issuers")
-            .select("appeal_channel, appeal_email, portal_url, postal_address, verified_at")
+            .select("appeal_channel, appeal_email, portal_url, postal_address, verified_at, tribunal_name")
             .ilike("name", caseRow.issuer_name)
             .maybeSingle()
         : Promise.resolve({ data: null }),
@@ -123,6 +126,11 @@ export default async function CaseDetailPage({
   const gmailDraftAvailable = Boolean(
     gmailConnection?.scopes?.includes("https://www.googleapis.com/auth/gmail.compose")
   );
+
+  // Only needed once there's an actual send gate to show a price on
+  // (individuals; fleets never see this) — skip the Stripe round-trip
+  // otherwise.
+  const priceLabel = organisation ? null : await getIndividualCasePriceLabel();
 
   return (
     <main className="min-h-full bg-planal-bg px-5 py-10 pb-28 text-planal-ink">
@@ -191,16 +199,36 @@ export default async function CaseDetailPage({
           </a>
         </div>
 
-        <div className="mt-6">
-          <AssessmentPanel
-            caseId={caseId}
-            appeal={appeal}
-            disclaimer={mandatoryDisclaimer(appeal?.ai_strength_rating ?? "weak", caseRow.issuer_type)}
-            requiresPayment={!organisation}
-            isPaid={Boolean(paidCharge)}
-            gmailDraftAvailable={gmailDraftAvailable}
-            issuerMatch={matchedIssuer}
-          />
+        <div className="mt-6" id="send-appeal">
+          {!appeal ? (
+            caseRow.details_confirmed_at && <AutoAssess caseId={caseId} />
+          ) : (
+            <>
+              {!appeal.user_confirmed_at && !["paid", "closed"].includes(caseRow.status) && (
+                <PayOrAppealChoice
+                  caseId={caseId}
+                  amountDiscounted={caseRow.amount_discounted}
+                  discountDeadline={caseRow.discount_deadline}
+                />
+              )}
+              <div className="mt-4">
+                <AssessmentPanel
+                  caseId={caseId}
+                  appeal={appeal}
+                  disclaimer={mandatoryDisclaimer(
+                    appeal.ai_strength_rating,
+                    caseRow.issuer_type,
+                    matchedIssuer?.tribunal_name
+                  )}
+                  requiresPayment={!organisation}
+                  isPaid={Boolean(paidCharge)}
+                  priceLabel={priceLabel}
+                  gmailDraftAvailable={gmailDraftAvailable}
+                  issuerMatch={matchedIssuer}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="mt-6">

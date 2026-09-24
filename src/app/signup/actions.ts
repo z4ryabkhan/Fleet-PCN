@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { claimAnonymousDraft } from "@/lib/anonymous-draft";
 
 export type SignUpState = { error: string } | undefined;
 
@@ -14,6 +15,10 @@ export async function signUpAction(
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "");
   const companyName = String(formData.get("companyName") || "").trim();
+  // UI review item 1: a visitor who tried a ticket before signing up
+  // carries this through so the draft becomes a real case the moment they
+  // have an account — see src/lib/anonymous-draft.ts.
+  const draftToken = String(formData.get("draftToken") || "").trim() || null;
 
   if (!fullName || !email || !password) {
     return { error: "Please fill in all required fields." };
@@ -28,6 +33,8 @@ export async function signUpAction(
   const supabase = await getSupabaseServerClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
+  const nextPath = draftToken ? `/api/anonymous-draft/claim?token=${draftToken}` : "/dashboard";
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -37,7 +44,7 @@ export async function signUpAction(
         account_type: accountType,
         ...(accountType === "fleet" ? { company_name: companyName } : {}),
       },
-      emailRedirectTo: `${appUrl}/auth/confirm`,
+      emailRedirectTo: `${appUrl}/auth/confirm?next=${encodeURIComponent(nextPath)}`,
     },
   });
 
@@ -47,7 +54,15 @@ export async function signUpAction(
 
   // If email confirmation is off for this project, signUp already returns
   // an active session — no point sending them to "check your email" for a
-  // link that isn't the gate. If it's on, there's no session yet and the
-  // confirmation email is what continues the flow.
-  redirect(data.session ? "/dashboard" : "/signup/check-email");
+  // link that isn't the gate, and no point routing through the claim
+  // *route* either since we already have everything the route would need.
+  if (data.session) {
+    if (draftToken) {
+      const caseId = await claimAnonymousDraft(supabase, draftToken, data.session.user.id);
+      redirect(caseId ? `/dashboard/cases/${caseId}` : "/dashboard");
+    }
+    redirect("/dashboard");
+  }
+
+  redirect("/signup/check-email");
 }

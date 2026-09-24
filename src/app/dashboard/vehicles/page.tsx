@@ -75,7 +75,10 @@ export default async function VehiclesPage() {
       <div className="mx-auto max-w-3xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Vehicles</h1>
-          <a href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
+          <a
+            href="/dashboard"
+            className="rounded text-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
             &larr; Dashboard
           </a>
         </div>

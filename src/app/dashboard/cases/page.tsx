@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
-import { TicketCaptureForm } from "@/components/cases/TicketCaptureForm";
+import { DeadlineChip } from "@/components/ui/DeadlineChip";
+import { BottomNav } from "@/components/ui/BottomNav";
+import { CameraIcon } from "@/components/ui/icons";
 
 export const metadata = { title: "Cases — Planal" };
 
@@ -26,12 +29,7 @@ export default async function CasesPage() {
 
   const { organisation } = await ensureAccountProvisioned(supabase, user);
 
-  const vehicleQuery = organisation
-    ? supabase.from("vehicles").select("id, vrm").eq("owner_organisation_id", organisation.id)
-    : supabase.from("vehicles").select("id, vrm").eq("owner_user_id", user.id);
-
-  const [{ data: vehicles }, { data: cases }, { data: memberRows }] = await Promise.all([
-    vehicleQuery.order("vrm"),
+  const [{ data: cases }, { data: memberRows }] = await Promise.all([
     supabase
       .from("cases")
       // Cast needed: Supabase's generated-free client types this embedded
@@ -55,99 +53,68 @@ export default async function CasesPage() {
   );
 
   return (
-    <main className="min-h-full bg-zinc-950 px-6 py-16 text-white">
-      <div className="mx-auto max-w-3xl">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Cases</h1>
-          <a href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
-            &larr; Dashboard
-          </a>
-        </div>
+    <main className="min-h-full bg-planal-bg px-5 pb-28 pt-10 text-planal-ink">
+      <div className="mx-auto max-w-md">
+        <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold">
+          {organisation ? `${organisation.name}'s cases` : "Your cases"}
+        </h1>
 
-        <div className="mt-8">
-          <TicketCaptureForm vehicles={vehicles ?? []} />
-        </div>
+        <Link
+          href="/try"
+          className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-planal-brand px-4 py-3.5 text-base font-semibold text-white hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand-dark focus-visible:ring-offset-2"
+        >
+          <CameraIcon /> Photograph a ticket
+        </Link>
 
-        <div className="mt-10">
-          <h2 className="text-lg font-medium">
-            {organisation ? `${organisation.name}'s cases` : "Your cases"}
-          </h2>
-
-          {!cases || cases.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-500">No cases yet.</p>
-          ) : (
-            <>
-              <p className="mt-3 text-xs text-zinc-500">
-                Deadlines are read from the notice where printed, or estimated from standard rules
-                for that issuer type otherwise. Always check the exact date on the notice itself.
-              </p>
-              <div className="mt-3 overflow-x-auto rounded-xl border border-white/10">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-white/10 text-zinc-400">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Vehicle</th>
-                    {organisation && <th className="px-4 py-3 font-medium">Driver</th>}
-                    <th className="px-4 py-3 font-medium">Issuer</th>
-                    <th className="px-4 py-3 font-medium">Reference</th>
-                    <th className="px-4 py-3 font-medium">Value</th>
-                    <th className="px-4 py-3 font-medium">Deadline</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cases.map((c) => (
-                    <tr
-                      key={c.id}
-                      className="border-b border-white/5 last:border-0 hover:bg-white/5"
-                    >
-                      <td className="px-4 py-3 font-medium">
-                        <a href={`/dashboard/cases/${c.id}`} className="block">
-                          {c.vehicles?.vrm ?? "—"}
-                        </a>
-                      </td>
-                      {organisation && (
-                        <td className="px-4 py-3 text-zinc-300">
-                          <a href={`/dashboard/cases/${c.id}`} className="block">
+        {!cases || cases.length === 0 ? (
+          <p className="mt-6 rounded-2xl border border-dashed border-planal-border p-6 text-center text-base text-planal-ink-muted">
+            No cases yet.
+          </p>
+        ) : (
+          <>
+            <p className="mt-5 text-sm text-planal-ink-muted">
+              Deadlines are read from the notice where printed, or estimated from standard rules
+              for that issuer type otherwise. Always check the exact date on the notice itself.
+            </p>
+            <ul className="mt-3 space-y-3">
+              {cases.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/dashboard/cases/${c.id}`}
+                    className="block rounded-2xl border border-planal-border bg-planal-surface p-4 hover:border-planal-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{c.vehicles?.vrm ?? "Vehicle"}</p>
+                        <p className="mt-0.5 truncate text-sm text-planal-ink-muted">
+                          {c.issuer_name ?? "Reading the ticket…"}
+                          {c.reference_number ? ` · ${c.reference_number}` : ""}
+                        </p>
+                        {organisation && (
+                          <p className="mt-0.5 text-sm text-planal-ink-muted">
                             {c.vehicles?.assigned_driver_user_id
                               ? (driverLabelById.get(c.vehicles.assigned_driver_user_id) ?? "—")
                               : "Unassigned"}
-                          </a>
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-zinc-300">
-                        <a href={`/dashboard/cases/${c.id}`} className="block">
-                          {c.issuer_name ?? "—"}
-                        </a>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-300">
-                        <a href={`/dashboard/cases/${c.id}`} className="block">
-                          {c.reference_number ?? "—"}
-                        </a>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-300">
-                        <a href={`/dashboard/cases/${c.id}`} className="block">
-                          {c.amount_full != null ? `£${c.amount_full}` : "—"}
-                        </a>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-300">
-                        <a href={`/dashboard/cases/${c.id}`} className="block">
-                          {c.final_deadline ?? "—"}
-                        </a>
-                      </td>
-                      <td className="px-4 py-3 capitalize text-zinc-300">
-                        <a href={`/dashboard/cases/${c.id}`} className="block">
-                          {c.status}
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </>
-          )}
-        </div>
+                          </p>
+                        )}
+                      </div>
+                      <p className="shrink-0 font-[family-name:var(--font-display)] text-lg font-bold">
+                        {c.amount_full != null ? `£${c.amount_full}` : "—"}
+                      </p>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <DeadlineChip deadline={c.final_deadline} settled={["paid", "closed"].includes(c.status)} />
+                      <span className="text-sm capitalize text-planal-ink-muted">{c.status}</span>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
+
+      <BottomNav active="cases" />
     </main>
   );
 }

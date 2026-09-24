@@ -94,7 +94,10 @@ export default async function ReportingPage() {
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Reporting</h1>
-          <a href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
+          <a
+            href="/dashboard"
+            className="rounded text-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
             &larr; Dashboard
           </a>
         </div>
@@ -109,7 +112,7 @@ export default async function ReportingPage() {
           ))}
         </div>
 
-        <p className="mt-8 text-xs text-zinc-500">
+        <p className="mt-8 text-sm text-zinc-500">
           &quot;Deadlines hit&quot; counts cases whose final deadline fell this month and that
           were resolved (paid, appealed, or closed) rather than left open past it. &quot;Discount
           value saved&quot; only counts cases actually paid on or before their discount deadline.

@@ -2,6 +2,12 @@
 // stages. "Council reply" has no real data behind it yet — reply detection
 // is a Phase 2 item (build brief section 8) — so it always renders as the
 // upcoming/pending stage rather than a fabricated "done".
+//
+// UI review item 7: an ordered list with a real check icon on completed
+// stages, not just a filled dot with no shape difference for non-colour
+// users.
+
+import { CheckIcon } from "@/components/ui/icons";
 
 type Stage = { label: string; at: string | null };
 
@@ -43,15 +49,17 @@ export function CaseTimeline({
             )}
             <span
               aria-hidden
-              className={`z-10 mt-0.5 h-[19px] w-[19px] shrink-0 rounded-full border-2 ${
+              className={`z-10 mt-0.5 flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border-2 ${
                 done ? "border-planal-brand bg-planal-brand" : "border-planal-border bg-planal-surface"
               }`}
-            />
+            >
+              {done && <CheckIcon className="h-2.5 w-2.5 text-white" />}
+            </span>
             <div>
               <p className={`text-sm font-medium ${done ? "text-planal-ink" : "text-planal-ink-muted"}`}>
                 {stage.label}
               </p>
-              {stage.at && <p className="text-xs text-planal-ink-muted">{formatWhen(stage.at)}</p>}
+              {stage.at && <p className="text-sm text-planal-ink-muted">{formatWhen(stage.at)}</p>}
             </div>
           </li>
         );

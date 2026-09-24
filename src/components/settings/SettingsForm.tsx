@@ -46,7 +46,7 @@ export function SettingsForm({
           maxLength={50}
           className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
         />
-        <p className="mt-1 text-xs text-zinc-500">Used only for SMS deadline reminders, if you enable them below.</p>
+        <p className="mt-1 text-sm text-zinc-500">Used only for SMS deadline reminders, if you enable them below.</p>
       </div>
 
       <label className="flex items-start gap-2 text-sm text-zinc-300">

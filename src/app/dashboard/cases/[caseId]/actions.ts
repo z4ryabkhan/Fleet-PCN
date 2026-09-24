@@ -49,8 +49,12 @@ async function loadCaseContext(
   };
 }
 
-// Individuals pay per case to unlock this (Part 2.2 step 5/6); fleets pay
-// recurring and are never blocked here — see addFleetPerCaseCharge's doc.
+// UI review items 1/4: assessment now runs free for everyone, automatically,
+// right after Check Details is confirmed (see AutoAssess.tsx) — the
+// individual-per-case charge moved from gating this to gating the actual
+// send (sendAppealAction below), matching "ask for sign-up and payment
+// only at Send". Fleets were never gated here either way — they pay
+// recurring, per addFleetPerCaseCharge's own doc, added below regardless.
 export async function requestAssessmentAction(
   _prevState: CaseDetailActionState,
   formData: FormData
@@ -66,20 +70,6 @@ export async function requestAssessmentAction(
   if (!ctx) return { error: "Case not found." };
 
   const { organisation } = await ensureAccountProvisioned(supabase, user);
-
-  if (!organisation) {
-    const { data: paidCharge } = await supabase
-      .from("case_charges")
-      .select("id")
-      .eq("case_id", caseId)
-      .eq("charge_type", "individual_per_case")
-      .eq("status", "paid")
-      .maybeSingle();
-
-    if (!paidCharge) {
-      return { error: "This case needs to be paid for before it can be assessed." };
-    }
-  }
 
   const assessment = await assessAppeal({
     issuerType: ctx.caseRow.issuer_type,
@@ -310,6 +300,22 @@ export async function sendAppealAction(
   const caseId = String(formData.get("caseId") || "");
   const to = String(formData.get("to") || "").trim();
   if (!to || !to.includes("@")) return { error: "Enter a valid recipient email address." };
+
+  // UI review items 1/5: payment gates the send, not the assessment —
+  // fleets pay recurring (never gated here), individuals pay per case.
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
+  if (!organisation) {
+    const { data: paidCharge } = await supabase
+      .from("case_charges")
+      .select("id")
+      .eq("case_id", caseId)
+      .eq("charge_type", "individual_per_case")
+      .eq("status", "paid")
+      .maybeSingle();
+    if (!paidCharge) {
+      return { error: "Pay to send this appeal first." };
+    }
+  }
 
   const { data: caseRow } = await supabase
     .from("cases")

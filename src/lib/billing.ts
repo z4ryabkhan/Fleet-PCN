@@ -117,6 +117,18 @@ export async function createIndividualCaseCheckoutSession(
   return session.url;
 }
 
+/** UI review item 5: "price visible on the button" — reads the live Stripe
+ * price rather than hardcoding it, so the button never drifts out of sync
+ * with what Checkout actually charges. Returns null if Stripe isn't
+ * configured; callers should fall back to a generic label in that case. */
+export async function getIndividualCasePriceLabel(): Promise<string | null> {
+  const stripe = getStripeClient();
+  if (!stripe || !PRICE_INDIVIDUAL_PER_CASE) return null;
+  const price = await stripe.prices.retrieve(PRICE_INDIVIDUAL_PER_CASE);
+  if (price.unit_amount == null) return null;
+  return `£${(price.unit_amount / 100).toFixed(2).replace(/\.00$/, "")}`;
+}
+
 /** Fleets pay recurring, not gated per-case (Part 2.2 step 6/7) — this
  * queues a £5 line item onto the org's next subscription invoice as a
  * side effect of processing a case, never blocking the assessment itself.

@@ -31,8 +31,12 @@ function money(n: number): string {
 
 export function formatCaseSummary(c: CaseSummaryInput): string {
   const issuer = c.issuerName ? ` from ${c.issuerName}` : "";
+  // Contravention descriptions ("Parked in a restricted street...") are
+  // already full noun phrases, not a reason clause — appending them after
+  // "for" ("for parked in a restricted street") reads ungrammatically. An
+  // em dash reads correctly regardless of how the description is phrased.
   const reason = c.contraventionDescription
-    ? ` for ${c.contraventionDescription.charAt(0).toLowerCase()}${c.contraventionDescription.slice(1)}`
+    ? ` — ${c.contraventionDescription.charAt(0).toLowerCase()}${c.contraventionDescription.slice(1)}`
     : c.contraventionCode
       ? ` (contravention code ${c.contraventionCode})`
       : "";

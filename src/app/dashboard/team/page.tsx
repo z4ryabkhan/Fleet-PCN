@@ -38,7 +38,10 @@ export default async function TeamPage() {
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Team</h1>
-          <a href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
+          <a
+            href="/dashboard"
+            className="rounded text-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
             &larr; Dashboard
           </a>
         </div>
@@ -54,9 +57,9 @@ export default async function TeamPage() {
               <div key={m.user_id} className="flex items-center justify-between px-4 py-3">
                 <div>
                   <p className="text-sm font-medium">{m.users?.full_name ?? m.users?.email ?? "—"}</p>
-                  <p className="text-xs text-zinc-500">{m.users?.email}</p>
+                  <p className="text-sm text-zinc-500">{m.users?.email}</p>
                 </div>
-                <span className="rounded-full border border-white/10 px-2 py-1 text-xs capitalize text-zinc-300">
+                <span className="rounded-full border border-white/10 px-2 py-1 text-sm capitalize text-zinc-300">
                   {m.role}
                 </span>
               </div>
@@ -71,7 +74,7 @@ export default async function TeamPage() {
               {pendingInvites.map((invite) => (
                 <div key={invite.id} className="flex items-center justify-between px-4 py-3">
                   <p className="text-sm text-zinc-300">{invite.email}</p>
-                  <span className="rounded-full border border-white/10 px-2 py-1 text-xs capitalize text-zinc-400">
+                  <span className="rounded-full border border-white/10 px-2 py-1 text-sm capitalize text-zinc-400">
                     {invite.role} · invited
                   </span>
                 </div>

@@ -19,7 +19,7 @@ export function DeadlineChip({
 }) {
   if (settled) {
     return (
-      <span className="inline-flex items-center rounded-full bg-planal-brand-tint px-3 py-1 text-xs font-semibold text-planal-brand-dark">
+      <span className="inline-flex items-center rounded-full bg-planal-brand-tint px-3 py-1 text-sm font-semibold text-planal-brand-dark">
         Sent
       </span>
     );
@@ -27,7 +27,7 @@ export function DeadlineChip({
 
   if (!deadline) {
     return (
-      <span className="inline-flex items-center rounded-full bg-planal-border px-3 py-1 text-xs font-semibold text-planal-ink-muted">
+      <span className="inline-flex items-center rounded-full bg-planal-border px-3 py-1 text-sm font-semibold text-planal-ink-muted">
         No deadline yet
       </span>
     );
@@ -44,7 +44,7 @@ export function DeadlineChip({
         : "bg-planal-brand-tint-2 text-planal-brand-dark";
 
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${classes}`}>
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${classes}`}>
       {label}
     </span>
   );
