@@ -328,6 +328,7 @@ export default async function CaseDetailPage({
                     date: caseRow.event_datetime,
                     location: caseRow.location_text,
                   }}
+                  evidenceFilenames={(evidence ?? []).map((e) => e.file_ref.split("/").pop() ?? e.file_ref)}
                 />
               </div>
             </>

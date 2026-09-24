@@ -14,6 +14,7 @@ import {
 import { groundLabel, type AppealGround } from "@/lib/appeal";
 import { appealReasonLabel, type AppealReasonCode } from "@/lib/appeal-reasons";
 import { AppealReasonForm } from "@/components/cases/AppealReasonForm";
+import { CopyField, CopyButton } from "@/components/cases/CopyField";
 import { CheckIcon } from "@/components/ui/icons";
 
 const initialState: CaseDetailActionState = undefined;
@@ -71,6 +72,7 @@ export function AssessmentPanel({
   userStatedReason,
   caseIssuerType,
   ticket,
+  evidenceFilenames,
 }: {
   caseId: string;
   appeal: Appeal;
@@ -83,6 +85,7 @@ export function AssessmentPanel({
   userStatedReason: string | null;
   caseIssuerType: string | null;
   ticket: { referenceNumber: string | null; vrm: string | null; date: string | null; location: string | null };
+  evidenceFilenames: string[];
 }) {
   const [payState, payAction, payPending] = useActionState(
     startIndividualCasePaymentAction,
@@ -324,9 +327,12 @@ export function AssessmentPanel({
               {draftState.success}
             </p>
           )}
-          <button type="submit" disabled={draftPending} className={SECONDARY_BTN}>
-            {draftPending ? "Saving..." : "Save edits"}
-          </button>
+          <div className="flex gap-2">
+            <button type="submit" disabled={draftPending} className={SECONDARY_BTN}>
+              {draftPending ? "Saving..." : "Save edits"}
+            </button>
+            <CopyButton value={currentText} className={SECONDARY_BTN} />
+          </div>
         </form>
       </div>
 
@@ -359,13 +365,58 @@ export function AssessmentPanel({
         <>
           <div className="mt-6 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-4 text-sm text-planal-amber-text">
             {issuerMatch.appeal_channel === "portal" ? (
-              <>
-                This issuer only accepts appeals through their own portal — email won&apos;t reach
-                them. Copy the draft above and submit it there
-                {issuerMatch.portal_url ? ` (${issuerMatch.portal_url})` : ""}.
-              </>
+              <>This issuer only accepts appeals through their own portal — email won&apos;t reach them.</>
             ) : (
               <>This issuer only accepts appeals by post. Use the PDF pack below instead of emailing.</>
+            )}
+          </div>
+
+          {issuerMatch.appeal_channel === "portal" && issuerMatch.portal_url && (
+            <a
+              href={issuerMatch.portal_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`mt-3 block w-full text-center ${PRIMARY_BTN}`}
+            >
+              Open {issuerMatch.portal_url.replace(/^https?:\/\//, "").split("/")[0]}
+            </a>
+          )}
+
+          {/* Option A ("prefilled portal helper", 2026-09): the issuer's
+              portal still has to be filled in by hand — see the
+              automation cost/risk write-up for why Planal doesn't submit
+              this directly. This turns "retype everything from the draft"
+              into "copy each field", which is most of the friction gone
+              at zero automation risk. */}
+          <div className="mt-3 space-y-2">
+            <p className="text-sm font-medium text-planal-ink">What to enter</p>
+            {ticket.referenceNumber && <CopyField label="Reference number" value={ticket.referenceNumber} />}
+            {ticket.vrm && <CopyField label="Vehicle registration" value={ticket.vrm} />}
+            {ticket.date && (
+              <CopyField
+                label="Contravention date"
+                value={new Date(ticket.date).toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              />
+            )}
+            {ticket.location && <CopyField label="Location" value={ticket.location} />}
+
+            {evidenceFilenames.length > 0 && (
+              <div className="rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5">
+                <p className="text-xs font-medium uppercase tracking-wide text-planal-ink-muted">
+                  Attach these files there too
+                </p>
+                <ul className="mt-1 space-y-0.5 text-sm text-planal-ink">
+                  {evidenceFilenames.map((name) => (
+                    <li key={name} className="truncate">
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
