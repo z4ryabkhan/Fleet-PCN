@@ -5,70 +5,70 @@ import { addIndividualVehicleAction, type VehicleActionState } from "@/app/dashb
 
 const initialState: VehicleActionState = undefined;
 
+const LABEL = "block text-sm font-medium text-planal-ink";
+const INPUT =
+  "mt-1.5 w-full min-h-11 rounded-xl border border-planal-border bg-planal-surface px-3.5 py-2.5 text-base text-planal-ink placeholder:text-planal-ink-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1";
+
 export function AddVehicleForm() {
   const [state, formAction, pending] = useActionState(addIndividualVehicleAction, initialState);
 
   return (
-    <form action={formAction} className="space-y-4 rounded-xl border border-white/10 p-6">
-      <h2 className="text-lg font-medium">Add a vehicle</h2>
+    <form action={formAction} className="space-y-4 rounded-2xl border border-planal-border bg-planal-surface p-5">
+      <h2 className="font-[family-name:var(--font-display)] text-lg font-bold">Add a vehicle</h2>
 
       <div>
-        <label htmlFor="vrm" className="block text-sm font-medium text-zinc-300">
+        <label htmlFor="vrm" className={LABEL}>
           Registration number
         </label>
-        <input
-          id="vrm"
-          name="vrm"
-          required
-          maxLength={20}
-          placeholder="AB12 CDE"
-          className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none"
-        />
+        <input id="vrm" name="vrm" required maxLength={20} placeholder="AB12 CDE" className={INPUT} />
       </div>
 
       <div>
-        <label htmlFor="documentType" className="block text-sm font-medium text-zinc-300">
-          Proof of ownership
+        <label htmlFor="documentType" className={LABEL}>
+          Proof of ownership <span className="text-planal-ink-muted">(optional)</span>
         </label>
-        <select
-          id="documentType"
-          name="documentType"
-          required
-          defaultValue=""
-          className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
-        >
-          <option value="" disabled>
-            Choose a document type
-          </option>
+        <select id="documentType" name="documentType" defaultValue="" className={INPUT}>
+          <option value="">No document to hand right now</option>
           <option value="v5c">V5C logbook</option>
           <option value="insurance">Insurance certificate</option>
           <option value="lease">Lease / finance agreement</option>
         </select>
+        <p className="mt-1.5 text-sm text-planal-ink-muted">
+          Not required to get started — you can add this later if you want it on file.
+        </p>
       </div>
 
       <div>
-        <label htmlFor="document" className="block text-sm font-medium text-zinc-300">
-          Upload document
+        <label htmlFor="document" className={LABEL}>
+          Upload document <span className="text-planal-ink-muted">(optional)</span>
         </label>
         <input
           id="document"
           name="document"
           type="file"
-          required
           accept="application/pdf,image/*"
-          className="mt-1 w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-white/20"
+          className="mt-1.5 w-full text-sm text-planal-ink-muted file:mr-3 file:min-h-11 file:rounded-lg file:border-0 file:bg-planal-brand-tint file:px-3 file:py-2 file:text-sm file:font-medium file:text-planal-brand-dark hover:file:bg-planal-brand-tint-2"
         />
       </div>
 
-      {state && "error" in state && <p className="text-sm text-red-400">{state.error}</p>}
-      {state && "success" in state && <p className="text-sm text-emerald-400">{state.success}</p>}
+      {state && "error" in state && (
+        <p className="text-sm text-planal-danger-text" role="alert">
+          {state.error}
+        </p>
+      )}
+      {state && "success" in state && (
+        <p className="text-sm text-planal-brand-dark" role="status">
+          {state.success}
+        </p>
+      )}
 
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-md bg-emerald-500 px-4 py-2.5 font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-h-11 w-full rounded-2xl bg-planal-brand px-4 py-3 text-base font-semibold text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand-dark focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        aria-live="polite"
       >
-        {pending ? "Adding..." : "Add vehicle"}
+        {pending ? "Saving…" : "Save vehicle"}
       </button>
     </form>
   );

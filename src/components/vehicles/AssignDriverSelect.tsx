@@ -25,7 +25,8 @@ export function AssignDriverSelect({
         name="driverUserId"
         defaultValue={currentDriverUserId ?? ""}
         onChange={() => formRef.current?.requestSubmit()}
-        className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-white focus:border-emerald-500 focus:outline-none"
+        aria-label="Assigned driver"
+        className="min-h-11 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-sm text-white focus:border-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
       >
         <option value="">Unassigned</option>
         {members.map((m) => (
@@ -34,7 +35,11 @@ export function AssignDriverSelect({
           </option>
         ))}
       </select>
-      {state && "error" in state && <p className="mt-1 text-xs text-red-400">{state.error}</p>}
+      {state && "error" in state && (
+        <p className="mt-1 text-sm text-red-400" role="alert">
+          {state.error}
+        </p>
+      )}
     </form>
   );
 }

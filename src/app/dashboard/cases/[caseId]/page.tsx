@@ -4,11 +4,18 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
 import { mandatoryDisclaimer } from "@/lib/appeal";
 import { AssessmentPanel } from "@/components/appeal/AssessmentPanel";
+import { AutoAssess } from "@/components/appeal/AutoAssess";
 import { EvidenceForm } from "@/components/appeal/EvidenceForm";
 import { CaseDetailsCard } from "@/components/cases/CaseDetailsCard";
 import { CaseTimeline } from "@/components/cases/CaseTimeline";
+import { PayOrAppealChoice } from "@/components/cases/PayOrAppealChoice";
+import { EvidenceRequestBanner } from "@/components/cases/EvidenceRequestBanner";
+import { TransferLiabilityPanel } from "@/components/cases/TransferLiabilityPanel";
+import { NeedsReviewPanel } from "@/components/cases/NeedsReviewPanel";
 import { formatCaseSummary } from "@/lib/case-summary";
 import { formatAuditAction } from "@/lib/audit-log";
+import { getIndividualCasePriceLabel } from "@/lib/billing";
+import { reasonByCode } from "@/lib/appeal-reasons";
 
 export const metadata = { title: "Case — Planal" };
 
@@ -45,7 +52,7 @@ export default async function CaseDetailPage({
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, contravention_description, location_text, event_datetime, notice_date, amount_full, amount_discounted, discount_deadline, final_deadline, status, paid_at, created_at, details_confirmed_at, user_stated_reason, route, matched_hire_id, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -65,8 +72,17 @@ export default async function CaseDetailPage({
   const { error: logViewError } = await supabase.rpc("log_case_view", { p_case_id: caseId });
   if (logViewError) console.error("log_case_view failed", logViewError);
 
-  const [{ data: evidence }, { data: appeal }, { data: paidCharge }, { data: gmailConnection }, { data: auditLog }, { data: matchedIssuer }] =
-    await Promise.all([
+  const [
+    { data: evidence },
+    { data: appeal },
+    { data: paidCharge },
+    { data: gmailConnection },
+    { data: auditLog },
+    { data: matchedIssuer },
+    { data: openEvidenceRequest },
+    { data: matchedHireRecord },
+    { data: needsReviewCandidates },
+  ] = await Promise.all([
       supabase
         .from("evidence")
         .select("id, evidence_type, file_ref, uploaded_at")
@@ -75,10 +91,13 @@ export default async function CaseDetailPage({
       supabase
         .from("appeals")
         .select(
-          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at"
+          "ai_strength_rating, ai_grounds_json, ai_reasoning_text, draft_text, user_edited_text, user_confirmed_at, outcome, created_at, sent_to_email, send_method, last_reply_kind, last_reply_summary"
         )
         .eq("case_id", caseId)
         .maybeSingle(),
+      // No-win-no-fee (2026-09-24): 'authorized' means a card is on file
+      // and the individual can send — they're only actually 'paid' after
+      // the appeal is later marked Won.
       organisation
         ? Promise.resolve({ data: null })
         : supabase
@@ -86,7 +105,7 @@ export default async function CaseDetailPage({
             .select("id")
             .eq("case_id", caseId)
             .eq("charge_type", "individual_per_case")
-            .eq("status", "paid")
+            .in("status", ["authorized", "paid"])
             .maybeSingle(),
       // Gmail draft creation (AssessmentPanel's "Create this as a Gmail
       // draft" button) is individual-only for now — see
@@ -114,15 +133,46 @@ export default async function CaseDetailPage({
       caseRow.issuer_name
         ? supabase
             .from("issuers")
-            .select("appeal_channel, appeal_email, portal_url, postal_address, verified_at")
+            .select("appeal_channel, appeal_email, portal_url, postal_address, verified_at, tribunal_name")
             .ilike("name", caseRow.issuer_name)
             .maybeSingle()
+        : Promise.resolve({ data: null }),
+      // Evidence-on-request: only ever populated by scan-mailboxes'
+      // Claude-classified reply pass, never proactively asked for here.
+      supabase
+        .from("evidence_requests")
+        .select("id, due_at")
+        .eq("case_id", caseId)
+        .is("fulfilled_at", null)
+        .order("requested_at", { ascending: false })
+        .maybeSingle(),
+      // Fleet route (0043): filled in only for the case this route was
+      // actually matched to.
+      caseRow.route === "transfer_liability" && caseRow.matched_hire_id
+        ? supabase
+            .from("hire_records")
+            .select("hirer_name, hirer_address, start_at, end_at, agreement_file_path")
+            .eq("id", caseRow.matched_hire_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      caseRow.route === "needs_review" && caseRow.event_datetime
+        ? supabase
+            .from("hire_records")
+            .select("id, hirer_name, start_at, end_at")
+            .eq("vehicle_id", caseRow.vehicle_id)
+            .lte("start_at", caseRow.event_datetime)
+            .gte("end_at", caseRow.event_datetime)
         : Promise.resolve({ data: null }),
     ]);
 
   const gmailDraftAvailable = Boolean(
     gmailConnection?.scopes?.includes("https://www.googleapis.com/auth/gmail.compose")
   );
+
+  // Only needed once there's an actual send gate to show a price on
+  // (individuals; fleets never see this) — skip the Stripe round-trip
+  // otherwise.
+  const priceLabel = organisation ? null : await getIndividualCasePriceLabel();
 
   return (
     <main className="min-h-full bg-planal-bg px-5 py-10 pb-28 text-planal-ink">
@@ -182,6 +232,21 @@ export default async function CaseDetailPage({
           </p>
         )}
 
+        {openEvidenceRequest && (
+          <EvidenceRequestBanner
+            caseId={caseId}
+            evidenceRequestId={openEvidenceRequest.id}
+            dueAt={openEvidenceRequest.due_at}
+            hints={reasonByCode(caseRow.user_stated_reason)?.evidenceHints ?? []}
+          />
+        )}
+
+        {!openEvidenceRequest && appeal?.last_reply_summary && (
+          <p className="mt-4 rounded-xl border border-planal-border bg-planal-surface p-3 text-sm text-planal-ink-muted">
+            Latest reply: {appeal.last_reply_summary}
+          </p>
+        )}
+
         <div className="mt-6">
           <a
             href={`/api/cases/${caseId}/pdf-pack`}
@@ -191,16 +256,83 @@ export default async function CaseDetailPage({
           </a>
         </div>
 
-        <div className="mt-6">
-          <AssessmentPanel
-            caseId={caseId}
-            appeal={appeal}
-            disclaimer={mandatoryDisclaimer(appeal?.ai_strength_rating ?? "weak", caseRow.issuer_type)}
-            requiresPayment={!organisation}
-            isPaid={Boolean(paidCharge)}
-            gmailDraftAvailable={gmailDraftAvailable}
-            issuerMatch={matchedIssuer}
-          />
+        <div className="mt-6" id="send-appeal">
+          {caseRow.route === "transfer_liability" ? (
+            matchedHireRecord ? (
+              <TransferLiabilityPanel
+                caseId={caseId}
+                hirerName={matchedHireRecord.hirer_name}
+                hirerAddress={matchedHireRecord.hirer_address}
+                hireStart={matchedHireRecord.start_at}
+                hireEnd={matchedHireRecord.end_at}
+                hasAgreement={Boolean(matchedHireRecord.agreement_file_path)}
+                issuerEmail={matchedIssuer?.appeal_email ?? null}
+                alreadySent={caseRow.status === "transferred"}
+              />
+            ) : (
+              // Hire records are admin-only (0043) — an assigned driver who
+              // can view this case at all still can't see the hirer's
+              // details, so this never falls through to the AI appeal flow
+              // below, which would be the wrong thing entirely for a
+              // transfer case.
+              <p className="rounded-2xl border border-planal-border bg-planal-surface p-5 text-sm text-planal-ink-muted">
+                This vehicle was on hire at the time — your fleet admin is handling the transfer notice.
+              </p>
+            )
+          ) : caseRow.route === "needs_review" ? (
+            organisation?.role === "admin" ? (
+              <NeedsReviewPanel
+                caseId={caseId}
+                candidates={(needsReviewCandidates ?? []).map((c) => ({
+                  id: c.id,
+                  hirerName: c.hirer_name,
+                  startAt: c.start_at,
+                  endAt: c.end_at,
+                }))}
+              />
+            ) : (
+              <p className="rounded-2xl border border-planal-border bg-planal-surface p-5 text-sm text-planal-ink-muted">
+                Your fleet admin is checking the hire records for this vehicle.
+              </p>
+            )
+          ) : !appeal ? (
+            caseRow.details_confirmed_at && <AutoAssess caseId={caseId} />
+          ) : (
+            <>
+              {!appeal.user_confirmed_at && !["paid", "closed"].includes(caseRow.status) && (
+                <PayOrAppealChoice
+                  caseId={caseId}
+                  amountDiscounted={caseRow.amount_discounted}
+                  discountDeadline={caseRow.discount_deadline}
+                />
+              )}
+              <div className="mt-4">
+                <AssessmentPanel
+                  caseId={caseId}
+                  appeal={appeal}
+                  disclaimer={mandatoryDisclaimer(
+                    appeal.ai_strength_rating,
+                    caseRow.issuer_type,
+                    matchedIssuer?.tribunal_name
+                  )}
+                  requiresPayment={!organisation}
+                  isPaid={Boolean(paidCharge)}
+                  priceLabel={priceLabel}
+                  gmailDraftAvailable={gmailDraftAvailable}
+                  issuerMatch={matchedIssuer}
+                  userStatedReason={caseRow.user_stated_reason}
+                  caseIssuerType={caseRow.issuer_type}
+                  ticket={{
+                    referenceNumber: caseRow.reference_number,
+                    vrm: vehicle?.vrm ?? null,
+                    date: caseRow.event_datetime,
+                    location: caseRow.location_text,
+                  }}
+                  evidenceFilenames={(evidence ?? []).map((e) => e.file_ref.split("/").pop() ?? e.file_ref)}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="mt-6">

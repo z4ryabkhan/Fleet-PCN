@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { ensureAccountProvisioned } from "@/lib/account";
-import { TicketCaptureForm } from "@/components/cases/TicketCaptureForm";
 import { DeadlineChip } from "@/components/ui/DeadlineChip";
 import { BottomNav } from "@/components/ui/BottomNav";
+import { CameraIcon } from "@/components/ui/icons";
 
 export const metadata = { title: "Planal" };
 
@@ -26,31 +26,27 @@ export default async function DashboardHomePage() {
 
   const { organisation } = await ensureAccountProvisioned(supabase, user);
 
-  const vehicleQuery = organisation
-    ? supabase.from("vehicles").select("id, vrm").eq("owner_organisation_id", organisation.id)
-    : supabase.from("vehicles").select("id, vrm").eq("owner_user_id", user.id);
-
-  const [{ data: vehicles }, { data: cases }] = await Promise.all([
-    vehicleQuery.order("vrm"),
-    supabase
-      .from("cases")
-      .select("id, issuer_name, amount_full, final_deadline, status, vehicles(vrm)")
-      .order("final_deadline", { ascending: true, nullsFirst: false })
-      .limit(20)
-      .returns<CaseCard[]>(),
-  ]);
+  const { data: cases } = await supabase
+    .from("cases")
+    .select("id, issuer_name, amount_full, final_deadline, status, vehicles(vrm)")
+    .order("final_deadline", { ascending: true, nullsFirst: false })
+    .limit(20)
+    .returns<CaseCard[]>();
 
   return (
     <main className="min-h-full bg-planal-bg pb-28 text-planal-ink">
       <div className="mx-auto max-w-md px-5 pt-10">
         <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold">Planal</h1>
-        <p className="mt-1 text-sm text-planal-ink-muted">
+        <p className="mt-1 text-base text-planal-ink-muted">
           {organisation ? organisation.name : "Snap it, we'll handle the rest."}
         </p>
 
-        <div className="mt-6">
-          <TicketCaptureForm vehicles={vehicles ?? []} />
-        </div>
+        <Link
+          href="/try"
+          className="mt-6 flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-planal-brand px-4 py-4 text-base font-semibold text-white hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand-dark focus-visible:ring-offset-2"
+        >
+          <CameraIcon /> Photograph your ticket
+        </Link>
 
         <div className="mt-9">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-planal-ink-muted">
@@ -58,7 +54,7 @@ export default async function DashboardHomePage() {
           </h2>
 
           {!cases || cases.length === 0 ? (
-            <p className="mt-4 rounded-2xl border border-dashed border-planal-border p-6 text-center text-sm text-planal-ink-muted">
+            <p className="mt-4 rounded-2xl border border-dashed border-planal-border p-6 text-center text-base text-planal-ink-muted">
               No tickets yet — photograph one above to get started.
             </p>
           ) : (
@@ -67,7 +63,7 @@ export default async function DashboardHomePage() {
                 <li key={c.id}>
                   <Link
                     href={`/dashboard/cases/${c.id}`}
-                    className="block rounded-2xl border border-planal-border bg-planal-surface p-4 hover:border-planal-brand"
+                    className="block rounded-2xl border border-planal-border bg-planal-surface p-4 hover:border-planal-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-planal-brand focus-visible:ring-offset-1"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

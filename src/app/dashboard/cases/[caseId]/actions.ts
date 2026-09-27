@@ -10,12 +10,15 @@ import { decryptToken, encryptToken } from "@/lib/crypto";
 import { refreshGoogleAccessToken, GMAIL_COMPOSE_SCOPE } from "@/lib/google-oauth";
 import { refreshMicrosoftAccessToken, GRAPH_MAIL_SEND_SCOPE } from "@/lib/microsoft-oauth";
 import { createGmailAppealDraft } from "@/lib/gmail-drafts";
-import { sendGmailAppeal, type EmailAttachment } from "@/lib/gmail-send";
-import { sendOutlookAppeal } from "@/lib/outlook-send";
+import { sendGmailAppeal, sendGmailEvidenceReply, type EmailAttachment } from "@/lib/gmail-send";
+import { sendOutlookAppeal, sendOutlookEvidenceReply } from "@/lib/outlook-send";
+import { buildTransferLiabilityLetter } from "@/lib/transfer-liability";
 import {
   getOrCreateBillingAccount,
   createIndividualCaseCheckoutSession,
   addFleetPerCaseCharge,
+  chargeCaseOnWin,
+  waiveCaseCharge,
 } from "@/lib/billing";
 import { PRICE_INDIVIDUAL_PER_CASE, getStripeClient } from "@/lib/stripe";
 
@@ -28,7 +31,7 @@ async function loadCaseContext(
   const { data: caseRow } = await supabase
     .from("cases")
     .select(
-      "id, vehicle_id, issuer_type, issuer_name, contravention_code, location_text, event_datetime, amount_full, amount_discounted, vehicles(vrm)"
+      "id, vehicle_id, issuer_type, issuer_name, reference_number, contravention_code, location_text, event_datetime, amount_full, amount_discounted, user_stated_reason, user_reason_details, vehicles(vrm)"
     )
     .eq("id", caseId)
     .single();
@@ -49,8 +52,12 @@ async function loadCaseContext(
   };
 }
 
-// Individuals pay per case to unlock this (Part 2.2 step 5/6); fleets pay
-// recurring and are never blocked here — see addFleetPerCaseCharge's doc.
+// UI review items 1/4: assessment now runs free for everyone, automatically,
+// right after Check Details is confirmed (see AutoAssess.tsx) — the
+// individual-per-case charge moved from gating this to gating the actual
+// send (sendAppealAction below), matching "ask for sign-up and payment
+// only at Send". Fleets were never gated here either way — they pay
+// recurring, per addFleetPerCaseCharge's own doc, added below regardless.
 export async function requestAssessmentAction(
   _prevState: CaseDetailActionState,
   formData: FormData
@@ -67,23 +74,10 @@ export async function requestAssessmentAction(
 
   const { organisation } = await ensureAccountProvisioned(supabase, user);
 
-  if (!organisation) {
-    const { data: paidCharge } = await supabase
-      .from("case_charges")
-      .select("id")
-      .eq("case_id", caseId)
-      .eq("charge_type", "individual_per_case")
-      .eq("status", "paid")
-      .maybeSingle();
-
-    if (!paidCharge) {
-      return { error: "This case needs to be paid for before it can be assessed." };
-    }
-  }
-
   const assessment = await assessAppeal({
     issuerType: ctx.caseRow.issuer_type,
     issuerName: ctx.caseRow.issuer_name,
+    referenceNumber: ctx.caseRow.reference_number,
     contraventionCode: ctx.caseRow.contravention_code,
     locationText: ctx.caseRow.location_text,
     eventDatetime: ctx.caseRow.event_datetime,
@@ -91,6 +85,8 @@ export async function requestAssessmentAction(
     amountDiscounted: ctx.caseRow.amount_discounted,
     vrm: ctx.vrm,
     evidenceTypes: ctx.evidenceTypes,
+    userStatedReason: ctx.caseRow.user_stated_reason,
+    userReasonDetails: ctx.caseRow.user_reason_details,
   });
 
   if (!assessment) {
@@ -120,6 +116,78 @@ export async function requestAssessmentAction(
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: "Assessment complete — review the draft below." };
+}
+
+// "Reason: X · Change" on the case/appeal screen (spec acceptance
+// criterion: changing the reason regenerates the draft). Only meaningful
+// before send — AssessmentPanel only renders the control while
+// appeal.user_confirmed_at is unset, but this is enforced here too rather
+// than trusted from the client.
+export async function changeAppealReasonAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const userStatedReason = String(formData.get("reason") || "");
+  const userReasonDetails = String(formData.get("details") || "").trim() || null;
+  if (!userStatedReason) return { error: "Choose a reason." };
+
+  const { data: existingAppeal } = await supabase
+    .from("appeals")
+    .select("user_confirmed_at")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (existingAppeal?.user_confirmed_at) {
+    return { error: "This appeal has already been sent — the reason can't be changed now." };
+  }
+
+  const { error: caseUpdateError } = await supabase
+    .from("cases")
+    .update({ user_stated_reason: userStatedReason, user_reason_details: userReasonDetails })
+    .eq("id", caseId);
+  if (caseUpdateError) return { error: "Could not save the reason. Please try again." };
+
+  const ctx = await loadCaseContext(supabase, caseId);
+  if (!ctx) return { error: "Case not found." };
+
+  const assessment = await assessAppeal({
+    issuerType: ctx.caseRow.issuer_type,
+    issuerName: ctx.caseRow.issuer_name,
+    referenceNumber: ctx.caseRow.reference_number,
+    contraventionCode: ctx.caseRow.contravention_code,
+    locationText: ctx.caseRow.location_text,
+    eventDatetime: ctx.caseRow.event_datetime,
+    amountFull: ctx.caseRow.amount_full,
+    amountDiscounted: ctx.caseRow.amount_discounted,
+    vrm: ctx.vrm,
+    evidenceTypes: ctx.evidenceTypes,
+    userStatedReason,
+    userReasonDetails,
+  });
+  if (!assessment) return { error: "Couldn't regenerate the draft. Please try again." };
+
+  const { error: upsertError } = await supabase.from("appeals").upsert(
+    {
+      case_id: caseId,
+      ai_strength_rating: assessment.strength,
+      ai_grounds_json: assessment.applicableGrounds,
+      ai_reasoning_text: assessment.reasoningText,
+      draft_text: assessment.draftText,
+      user_edited_text: null,
+      created_by: user.id,
+    },
+    { onConflict: "case_id" }
+  );
+  if (upsertError) return { error: "Could not save the new draft. Please try again." };
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Reason updated — your draft has been rewritten." };
 }
 
 // Individuals only — creates a pending case_charges row and redirects to
@@ -311,6 +379,24 @@ export async function sendAppealAction(
   const to = String(formData.get("to") || "").trim();
   if (!to || !to.includes("@")) return { error: "Enter a valid recipient email address." };
 
+  // UI review items 1/5: payment gates the send, not the assessment —
+  // fleets pay recurring (never gated here). No-win-no-fee (2026-09-24):
+  // individuals only need a card on file ('authorized') to send — they're
+  // not actually charged until/unless the appeal is later marked Won.
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
+  if (!organisation) {
+    const { data: authorizedCharge } = await supabase
+      .from("case_charges")
+      .select("id")
+      .eq("case_id", caseId)
+      .eq("charge_type", "individual_per_case")
+      .in("status", ["authorized", "paid"])
+      .maybeSingle();
+    if (!authorizedCharge) {
+      return { error: "Save a card to send this appeal first — you're only charged if you win." };
+    }
+  }
+
   const { data: caseRow } = await supabase
     .from("cases")
     .select("issuer_name, reference_number, vehicle_id, vehicles(vrm, owner_type, owner_user_id, owner_organisation_id)")
@@ -414,7 +500,7 @@ export async function sendAppealAction(
   const sent =
     connection.provider === "gmail"
       ? await sendGmailAppeal(accessToken, { to, subject, bodyText, attachments })
-      : (await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments })) ? {} : null;
+      : await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments });
 
   if (!sent) {
     return { error: "Could not send the email. Please try again, or use the PDF pack instead." };
@@ -427,6 +513,11 @@ export async function sendAppealAction(
       outcome: "pending",
       sent_to_email: to,
       send_method: connection.provider,
+      // Evidence-on-request's reply-checking (scan-mailboxes) polls this
+      // thread for the issuer's response — without it, a reply has nothing
+      // to be matched against.
+      sent_message_id: sent.messageId,
+      sent_thread_id: sent.threadId,
     })
     .eq("case_id", caseId);
   if (appealError) return { error: "Sent, but could not update the case record. Please refresh." };
@@ -435,6 +526,403 @@ export async function sendAppealAction(
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: `Sent to ${to}.` };
+}
+
+// Build brief Phase 4 "transfer_liability" route (0043): sends a filled-in
+// notification letter naming the hirer who had the vehicle at the time,
+// rather than an AI-drafted appeal — see src/lib/transfer-liability.ts for
+// why this is a template, not a Claude call. Deliberately does not touch
+// the appeals table (there's no assessment here to record) or
+// sent_thread_id (scan-mailboxes' reply-classification pass is
+// appeal-specific; a transfer notice is a one-shot letter, not something
+// this pass tracks a reply thread for).
+export async function sendTransferLiabilityAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const to = String(formData.get("to") || "").trim();
+  if (!to || !to.includes("@")) return { error: "Enter a valid recipient email address." };
+
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select(
+      "route, matched_hire_id, issuer_name, reference_number, location_text, event_datetime, vehicles(vrm, owner_type, owner_organisation_id)"
+    )
+    .eq("id", caseId)
+    .single();
+  if (!caseRow) return { error: "Case not found." };
+  if (caseRow.route !== "transfer_liability" || !caseRow.matched_hire_id) {
+    return { error: "This case isn't matched to a hire record." };
+  }
+
+  const vehicle = caseRow.vehicles as unknown as {
+    vrm: string;
+    owner_type: "individual" | "organisation";
+    owner_organisation_id: string | null;
+  } | null;
+  if (!vehicle || vehicle.owner_type !== "organisation" || !vehicle.owner_organisation_id) {
+    return { error: "Only fleet vehicles can transfer liability." };
+  }
+
+  const { data: hireRecord } = await supabase
+    .from("hire_records")
+    .select("hirer_name, hirer_address, start_at, end_at, agreement_file_path")
+    .eq("id", caseRow.matched_hire_id)
+    .single();
+  if (!hireRecord) return { error: "The matched hire record could not be found." };
+
+  const { data: connection } = await supabase
+    .from("email_connections")
+    .select("id, provider, encrypted_access_token, encrypted_refresh_token, token_expires_at, scopes")
+    .eq("owner_type", "organisation")
+    .eq("owner_organisation_id", vehicle.owner_organisation_id)
+    .eq("status", "connected")
+    .maybeSingle();
+
+  if (!connection) {
+    return { error: "Connect Gmail or Outlook first, from the Connected email page." };
+  }
+
+  const requiredScope = connection.provider === "gmail" ? GMAIL_COMPOSE_SCOPE : GRAPH_MAIL_SEND_SCOPE;
+  if (!connection.scopes?.includes(requiredScope)) {
+    return {
+      error: `Your ${connection.provider === "gmail" ? "Gmail" : "Outlook"} connection needs to be renewed to allow sending — revoke it and reconnect from the Connected email page.`,
+    };
+  }
+
+  let accessToken = decryptToken(connection.encrypted_access_token);
+  if (new Date(connection.token_expires_at).getTime() - Date.now() < 5 * 60_000) {
+    try {
+      const refreshToken = decryptToken(connection.encrypted_refresh_token);
+      if (connection.provider === "gmail") {
+        const refreshed = await refreshGoogleAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      } else {
+        const refreshed = await refreshMicrosoftAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            encrypted_refresh_token: encryptToken(refreshed.refreshToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      }
+    } catch (err) {
+      console.error("Failed to refresh email access token", err);
+      return { error: "Your email connection has expired. Please reconnect it." };
+    }
+  }
+
+  const attachments: EmailAttachment[] = [];
+  if (hireRecord.agreement_file_path) {
+    const { data: blob, error } = await supabase.storage
+      .from("hire-agreements")
+      .download(hireRecord.agreement_file_path);
+    if (!error && blob) {
+      const ext = hireRecord.agreement_file_path.toLowerCase().split(".").pop() ?? "";
+      const mimeType = ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : "image/jpeg";
+      attachments.push({
+        filename: hireRecord.agreement_file_path.split("/").pop() ?? "hire-agreement",
+        mimeType,
+        data: Buffer.from(await blob.arrayBuffer()),
+      });
+    }
+  }
+
+  const bodyText = buildTransferLiabilityLetter({
+    issuerName: caseRow.issuer_name,
+    referenceNumber: caseRow.reference_number,
+    vrm: vehicle.vrm,
+    eventDatetime: caseRow.event_datetime,
+    locationText: caseRow.location_text,
+    hirerName: hireRecord.hirer_name,
+    hirerAddress: hireRecord.hirer_address,
+    hireStart: hireRecord.start_at,
+    hireEnd: hireRecord.end_at,
+    hasAgreementAttached: attachments.length > 0,
+  });
+
+  const subject = `Transfer of liability — ${vehicle.vrm} — ${caseRow.issuer_name ?? "issuer"}${
+    caseRow.reference_number ? ` — ref ${caseRow.reference_number}` : ""
+  }`;
+
+  const sent =
+    connection.provider === "gmail"
+      ? await sendGmailAppeal(accessToken, { to, subject, bodyText, attachments })
+      : await sendOutlookAppeal(accessToken, { to, subject, bodyText, attachments });
+
+  if (!sent) {
+    return { error: "Could not send the email. Please try again, or use the PDF pack instead." };
+  }
+
+  await supabase.from("cases").update({ status: "transferred" }).eq("id", caseId);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: `Sent to ${to}.` };
+}
+
+// A case only ever lands in 'needs_review' (0043) when more than one hire
+// record overlaps the contravention date on the same vehicle — an admin
+// has to say which hirer actually had it, or that neither applies and this
+// should just be appealed normally. Only ever moves a case OUT of
+// needs_review, never into it (compute_case_route sets that).
+export async function resolveHireMatchAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const choice = String(formData.get("choice") || "");
+
+  const { data: caseRow } = await supabase.from("cases").select("route").eq("id", caseId).single();
+  if (!caseRow) return { error: "Case not found." };
+  if (caseRow.route !== "needs_review") return { error: "This case doesn't need review." };
+
+  if (choice === "appeal") {
+    const { error } = await supabase.from("cases").update({ route: "appeal", matched_hire_id: null }).eq("id", caseId);
+    if (error) return { error: "Could not update this case. Please try again." };
+  } else {
+    const hireRecordId = choice;
+    if (!hireRecordId) return { error: "Choose which hire this ticket belongs to." };
+    const { error } = await supabase
+      .from("cases")
+      .update({ route: "transfer_liability", matched_hire_id: hireRecordId })
+      .eq("id", caseId);
+    if (error) return { error: "Could not update this case. Please try again." };
+  }
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Updated." };
+}
+
+// Evidence-on-request (Zaryab's spec): the one case where Planal sends
+// something after the initial appeal — always a reply in the same thread,
+// always evidence the issuer's own reply actually asked for (scan-mailboxes'
+// Claude classification created the evidence_requests row this responds
+// to), never proactive. Uses the admin client for the evidence_requests
+// write since that table has no authenticated update policy (service-role
+// writes only, same as case_charges) — everything else here runs as the
+// user, same pattern sendAppealAction uses.
+export async function sendEvidenceReplyAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+  const evidenceRequestId = String(formData.get("evidenceRequestId") || "");
+  const evidenceType = String(formData.get("evidenceType") || "other");
+  const note = String(formData.get("note") || "").trim();
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { error: "Choose a file to send." };
+  if (file.size > 10 * 1024 * 1024) return { error: "File is too large (max 10MB)." };
+
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select("issuer_name, reference_number, vehicle_id, vehicles(vrm, owner_type, owner_user_id, owner_organisation_id)")
+    .eq("id", caseId)
+    .single();
+  if (!caseRow) return { error: "Case not found." };
+
+  const { data: appeal } = await supabase
+    .from("appeals")
+    .select("sent_message_id, sent_thread_id, sent_to_email, send_method")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (!appeal?.sent_message_id || !appeal.sent_thread_id || !appeal.sent_to_email) {
+    return { error: "This case has no sent appeal to reply to." };
+  }
+
+  const vehicle = caseRow.vehicles as unknown as {
+    vrm: string;
+    owner_type: "individual" | "organisation";
+    owner_user_id: string | null;
+    owner_organisation_id: string | null;
+  } | null;
+  if (!vehicle) return { error: "Case has no vehicle." };
+
+  const { data: connection } = await supabase
+    .from("email_connections")
+    .select("id, provider, encrypted_access_token, encrypted_refresh_token, token_expires_at, scopes")
+    .eq("owner_type", vehicle.owner_type)
+    .eq(
+      vehicle.owner_type === "individual" ? "owner_user_id" : "owner_organisation_id",
+      vehicle.owner_type === "individual" ? vehicle.owner_user_id : vehicle.owner_organisation_id
+    )
+    .eq("provider", appeal.send_method)
+    .eq("status", "connected")
+    .maybeSingle();
+  if (!connection) {
+    return { error: "Connect Gmail or Outlook first, from the Connected email page." };
+  }
+
+  const requiredScope = connection.provider === "gmail" ? GMAIL_COMPOSE_SCOPE : GRAPH_MAIL_SEND_SCOPE;
+  if (!connection.scopes?.includes(requiredScope)) {
+    return {
+      error: `Your ${connection.provider === "gmail" ? "Gmail" : "Outlook"} connection needs to be renewed to allow sending — revoke it and reconnect from the Connected email page.`,
+    };
+  }
+
+  let accessToken = decryptToken(connection.encrypted_access_token);
+  if (new Date(connection.token_expires_at).getTime() - Date.now() < 5 * 60_000) {
+    try {
+      const refreshToken = decryptToken(connection.encrypted_refresh_token);
+      if (connection.provider === "gmail") {
+        const refreshed = await refreshGoogleAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      } else {
+        const refreshed = await refreshMicrosoftAccessToken(refreshToken);
+        accessToken = refreshed.accessToken;
+        await supabase
+          .from("email_connections")
+          .update({
+            encrypted_access_token: encryptToken(refreshed.accessToken),
+            encrypted_refresh_token: encryptToken(refreshed.refreshToken),
+            token_expires_at: new Date(Date.now() + refreshed.expiresIn * 1000).toISOString(),
+          })
+          .eq("id", connection.id);
+      }
+    } catch (err) {
+      console.error("Failed to refresh email access token", err);
+      return { error: "Your email connection has expired. Please reconnect it." };
+    }
+  }
+
+  const path = `${caseRow.vehicle_id}/${Date.now()}-${file.name}`;
+  const { error: uploadError } = await supabase.storage.from("case-evidence").upload(path, file);
+  if (uploadError) return { error: "Could not upload the file." };
+
+  const attachment: EmailAttachment = {
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    data: Buffer.from(await file.arrayBuffer()),
+  };
+  const bodyText =
+    note ||
+    `Please find the requested evidence attached in support of my appeal${
+      caseRow.reference_number ? ` (ref ${caseRow.reference_number})` : ""
+    }.`;
+  const subject = `PCN appeal — ${vehicle.vrm} — ${caseRow.issuer_name ?? "issuer"}${
+    caseRow.reference_number ? ` — ref ${caseRow.reference_number}` : ""
+  }`;
+
+  const sent =
+    connection.provider === "gmail"
+      ? await sendGmailEvidenceReply(accessToken, {
+          to: appeal.sent_to_email,
+          subject,
+          bodyText,
+          attachments: [attachment],
+          threadId: appeal.sent_thread_id,
+          inReplyToMessageId: appeal.sent_message_id,
+        })
+      : await sendOutlookEvidenceReply(accessToken, {
+          inReplyToMessageId: appeal.sent_message_id,
+          bodyText,
+          attachments: [attachment],
+        });
+
+  if (!sent) {
+    return { error: "Could not send the evidence. Please try again." };
+  }
+
+  await supabase.from("evidence").insert({
+    case_id: caseId,
+    file_ref: path,
+    evidence_type: ["receipt", "permit", "blue_badge", "breakdown_doc", "other"].includes(evidenceType)
+      ? evidenceType
+      : "other",
+    uploaded_by: user.id,
+  });
+
+  const admin = getSupabaseAdminClient();
+  await admin.from("evidence_requests").update({ fulfilled_at: new Date().toISOString() }).eq("id", evidenceRequestId);
+
+  await supabase.from("cases").update({ status: "appealed" }).eq("id", caseId);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Evidence sent." };
+}
+
+// Covers issuers whose appeal_channel is 'portal' or 'post' — the app
+// can't submit anything on the user's behalf there (no email API to call),
+// so this only ever marks the case as submitted once the user tells us
+// they've done it themselves elsewhere.
+//
+// Deliberately free, unlike sendAppealAction: charging the same price for
+// "here's a draft, go paste it in yourself" as for "we actually sent it"
+// overcharges for less work (Zaryab, 2026-09-24) — individuals only ever
+// pay when Planal itself performs the send. Still needed regardless of
+// price: without this action, portal/post cases had no way to ever leave
+// the "appeal ready" state, so deadline tracking and outcome capture
+// silently never kicked in for them.
+export async function confirmManualAppealSubmissionAction(
+  _prevState: CaseDetailActionState,
+  formData: FormData
+): Promise<CaseDetailActionState> {
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const caseId = String(formData.get("caseId") || "");
+
+  const { data: appeal } = await supabase
+    .from("appeals")
+    .select("draft_text, user_edited_text")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (!appeal?.draft_text && !appeal?.user_edited_text) {
+    return { error: "Assess the case and get a draft first." };
+  }
+
+  const { error: appealError } = await supabase
+    .from("appeals")
+    .update({
+      user_confirmed_at: new Date().toISOString(),
+      outcome: "pending",
+      send_method: "manual",
+    })
+    .eq("case_id", caseId);
+  if (appealError) return { error: "Could not update the case record. Please refresh." };
+
+  await supabase.from("cases").update({ status: "appealed" }).eq("id", caseId);
+
+  revalidatePath(`/dashboard/cases/${caseId}`);
+  return { success: "Marked as submitted." };
 }
 
 // Part 2.2 individual journey step 4 promises paying the fine as the
@@ -604,6 +1092,12 @@ export async function addEvidenceAction(
   return { success: "Evidence added." };
 }
 
+// No-win-no-fee (2026-09-24): this is the one moment an individual is
+// ever actually charged. Won triggers the off-session charge against the
+// card saved at send time; Lost releases it, charging nothing. Fleets
+// never have an individual_per_case charge row to act on here (they pay
+// recurring instead), so chargeCaseOnWin/waiveCaseCharge just no-op for
+// them.
 export async function setOutcomeAction(
   _prevState: CaseDetailActionState,
   formData: FormData
@@ -622,6 +1116,16 @@ export async function setOutcomeAction(
   if (error) return { error: "Could not save the outcome." };
 
   await supabase.from("cases").update({ status: "closed" }).eq("id", caseId);
+
+  const { organisation } = await ensureAccountProvisioned(supabase, user);
+  if (!organisation) {
+    const admin = getSupabaseAdminClient();
+    if (outcome === "won") {
+      await chargeCaseOnWin(admin, caseId);
+    } else {
+      await waiveCaseCharge(admin, caseId);
+    }
+  }
 
   revalidatePath(`/dashboard/cases/${caseId}`);
   return { success: "Outcome recorded." };

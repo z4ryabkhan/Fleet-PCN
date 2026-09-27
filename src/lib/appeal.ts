@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { appealReasonLabel, reasonByCode, renderReasonBody } from "@/lib/appeal-reasons";
 
 // AI appeal-strength assessment + draft generation — Part 2.4 of
 // PLANAL_MASTER_PLAN.md. Returns null if no API key is configured, same
@@ -70,8 +71,17 @@ const AssessmentSchema = z.object({
 
 export type AppealAssessment = z.infer<typeof AssessmentSchema>;
 
-/** Which adjudicator has the final say — for the mandatory disclaimer (Part 2.4). */
-export function getAdjudicatorName(issuerType: string | null): string {
+/** Which adjudicator has the final say — for the mandatory disclaimer (Part
+ * 2.4). UI review item 6: this wording must come from the issuer directory,
+ * not a hard-coded switch — so a verified issuers.tribunal_name takes
+ * priority whenever the case's issuer has a directory match. The
+ * issuer_type switch below only fires while that issuer has no directory
+ * entry yet (the directory starts empty), and is itself just the general
+ * London-vs-elsewhere-vs-private-operator legal structure, not made-up
+ * copy about a specific issuer. */
+export function getAdjudicatorName(issuerType: string | null, directoryTribunalName?: string | null): string {
+  if (directoryTribunalName) return directoryTribunalName;
+
   switch (issuerType) {
     case "tfl_pcn":
     case "congestion_charge":
@@ -85,9 +95,13 @@ export function getAdjudicatorName(issuerType: string | null): string {
 }
 
 /** The mandatory copy Part 2.4 requires alongside every assessment. */
-export function mandatoryDisclaimer(strength: string, issuerType: string | null): string {
+export function mandatoryDisclaimer(
+  strength: string,
+  issuerType: string | null,
+  directoryTribunalName?: string | null
+): string {
   const label = strength.charAt(0).toUpperCase() + strength.slice(1);
-  return `Appeal strength: ${label}. This is our assessment based on the evidence provided, not a guarantee. ${getAdjudicatorName(issuerType)} makes the final decision.`;
+  return `Appeal strength: ${label}. This is our assessment based on the evidence provided, not a guarantee. ${getAdjudicatorName(issuerType, directoryTribunalName)} makes the final decision.`;
 }
 
 export function groundLabel(ground: AppealGround): string {
@@ -97,6 +111,7 @@ export function groundLabel(ground: AppealGround): string {
 type CaseContext = {
   issuerType: string | null;
   issuerName: string | null;
+  referenceNumber?: string | null;
   contraventionCode: string | null;
   locationText: string | null;
   eventDatetime: string | null;
@@ -104,6 +119,8 @@ type CaseContext = {
   amountDiscounted: number | null;
   vrm: string;
   evidenceTypes: string[];
+  userStatedReason?: string | null;
+  userReasonDetails?: string | null;
 };
 
 const SYSTEM_PROMPT = `You assess UK parking/traffic penalty notice (PCN) appeals for Planal. Reason over these grounds only — do not invent grounds outside this list: ${APPEAL_GROUNDS.map((g) => GROUND_LABELS[g]).join(" · ")}.
@@ -114,7 +131,8 @@ Rules, non-negotiable:
 - Only cite grounds that are actually plausible given the case facts provided — don't pad the list.
 - For each applicable ground, state what evidence would support it, and be honest if that evidence hasn't been provided yet.
 - The draft you write is for the user to review, edit, and submit themselves — never write as if you are submitting it, never address it as if the submission has already happened.
-- If the facts given are too thin to assess properly, say so plainly in reasoningText and rate conservatively (weak) rather than inventing supporting detail.`;
+- If the facts given are too thin to assess properly, say so plainly in reasoningText and rate conservatively (weak) rather than inventing supporting detail.
+- If the user has stated their own reason for appealing, treat it as their account of events, not a fact you've independently verified. When it's plausible given the other case facts, build the draft around it as the primary ground. When it conflicts with the facts provided (e.g. they say they weren't the owner but no ownership-transfer evidence exists), say so honestly in reasoningText rather than silently ignoring the conflict or fabricating support for it.`;
 
 /**
  * Assesses appeal strength and drafts appeal text. Returns null if no API
@@ -139,6 +157,18 @@ Event date/time: ${ctx.eventDatetime ?? "not recorded"}
 Full amount: ${ctx.amountFull != null ? `£${ctx.amountFull}` : "not recorded"}
 Discounted amount: ${ctx.amountDiscounted != null ? `£${ctx.amountDiscounted}` : "not recorded"}
 Evidence already uploaded: ${ctx.evidenceTypes.length > 0 ? ctx.evidenceTypes.join(", ") : "none yet"}
+User's stated reason for appealing: ${appealReasonLabel(ctx.userStatedReason) ?? "not given"}
+Grounded starting sentence for that reason, filled in with this case's own facts (use this as your factual anchor — polish the wording, but introduce nothing beyond it, the other facts above, and the user's own text below): ${
+    ctx.userStatedReason && reasonByCode(ctx.userStatedReason)
+      ? renderReasonBody(reasonByCode(ctx.userStatedReason)!, {
+          referenceNumber: ctx.referenceNumber,
+          vrm: ctx.vrm,
+          date: ctx.eventDatetime,
+          location: ctx.locationText,
+        })
+      : "not applicable"
+  }
+Additional details the user gave: ${ctx.userReasonDetails?.trim() || "none"}
 `.trim();
 
   try {

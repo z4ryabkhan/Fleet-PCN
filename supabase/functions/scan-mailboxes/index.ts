@@ -336,6 +336,41 @@ async function fetchGmailAttachmentData(accessToken: string, messageId: string, 
   return (body.data as string).replace(/-/g, "+").replace(/_/g, "/");
 }
 
+// --- Evidence-on-request: reply fetching (Gmail)
+//
+// Threads store every message in the conversation, including our own sent
+// copy — fromEmail lets the caller filter that out and keep only the
+// issuer's own replies.
+
+type ThreadMessage = { id: string; fromEmail: string; internalDate: number; bodyText: string };
+
+function headerValue(headers: { name: string; value: string }[] | undefined, name: string): string {
+  return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+}
+
+function extractEmailAddress(fromHeader: string): string {
+  const match = fromHeader.match(/<([^>]+)>/);
+  return (match ? match[1] : fromHeader).trim().toLowerCase();
+}
+
+type GmailPayloadWithHeaders = GmailPayload & { headers?: { name: string; value: string }[] };
+
+async function fetchGmailThreadMessages(accessToken: string, threadId: string): Promise<ThreadMessage[]> {
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Gmail thread fetch failed: ${res.status} ${await res.text()}`);
+  const json = await res.json();
+  return ((json.messages ?? []) as { id: string; internalDate: string; payload?: GmailPayloadWithHeaders }[]).map(
+    (m) => ({
+      id: m.id,
+      fromEmail: extractEmailAddress(headerValue(m.payload?.headers, "From")),
+      internalDate: Number(m.internalDate),
+      bodyText: extractGmailBodyText(m.payload),
+    })
+  );
+}
+
 async function fetchGmailCandidates(accessToken: string, sinceIso: string): Promise<Candidate[]> {
   const afterEpochSeconds = Math.floor(new Date(sinceIso).getTime() / 1000);
   const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
@@ -420,6 +455,34 @@ async function fetchOutlookAttachment(accessToken: string, messageId: string): P
   // Graph file attachments are already standard base64 — no url-safe
   // conversion needed, unlike Gmail's.
   return { filename: match.name, mimeType: match.contentType, base64Data: match.contentBytes };
+}
+
+// --- Evidence-on-request: reply fetching (Outlook)
+
+async function fetchOutlookConversationMessages(accessToken: string, conversationId: string): Promise<ThreadMessage[]> {
+  const url = new URL("https://graph.microsoft.com/v1.0/me/messages");
+  url.searchParams.set("$filter", `conversationId eq '${conversationId}'`);
+  url.searchParams.set("$select", "id,from,receivedDateTime,body,bodyPreview");
+  url.searchParams.set("$orderby", "receivedDateTime desc");
+
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`Graph conversation fetch failed: ${res.status} ${await res.text()}`);
+  const { value } = (await res.json()) as {
+    value?: {
+      id: string;
+      from?: { emailAddress?: { address?: string } };
+      receivedDateTime: string;
+      body?: { contentType?: string; content?: string };
+      bodyPreview?: string;
+    }[];
+  };
+
+  return (value ?? []).map((m) => ({
+    id: m.id,
+    fromEmail: (m.from?.emailAddress?.address ?? "").toLowerCase(),
+    internalDate: new Date(m.receivedDateTime).getTime(),
+    bodyText: m.body?.contentType === "html" ? stripHtml(m.body.content ?? "") : (m.body?.content ?? m.bodyPreview ?? ""),
+  }));
 }
 
 async function fetchOutlookCandidates(accessToken: string, sinceIso: string): Promise<Candidate[]> {
@@ -518,6 +581,125 @@ async function extractPcnFromEmailText(
   return toolUse.input as Extraction;
 }
 
+// --- Evidence-on-request: reply classification
+//
+// Zaryab's spec: classify a reply into evidence_requested | accepted |
+// rejected | info_only, only acting specially on evidence_requested (the
+// other three are surfaced to the user via last_reply_kind/summary but
+// never auto-change billing or case status — Won/Lost stays a human
+// decision via setOutcomeAction, since that's what actually triggers the
+// no-win-no-fee charge, and an email classifier misreading a reply should
+// never be able to move money on its own).
+
+const CLASSIFY_TOOL = {
+  name: "record_reply_classification",
+  description: "Classifies a reply email to a sent UK PCN appeal.",
+  input_schema: {
+    type: "object",
+    properties: {
+      kind: {
+        type: "string",
+        enum: ["evidence_requested", "accepted", "rejected", "info_only"],
+        description:
+          "evidence_requested only if the issuer is asking for documents or proof before deciding. accepted if they say the appeal succeeded / penalty cancelled. rejected if they say the appeal failed / penalty stands. info_only for anything else (acknowledgement, procedural update).",
+      },
+      dueDate: { type: ["string", "null"], description: "ISO 8601 date (YYYY-MM-DD) evidence is due by, only if explicitly stated." },
+      summary: { type: "string", description: "One plain-English sentence summarising the reply, for the user to read." },
+    },
+    required: ["kind", "dueDate", "summary"],
+  },
+};
+
+type ReplyClassification = {
+  kind: "evidence_requested" | "accepted" | "rejected" | "info_only";
+  dueDate: string | null;
+  summary: string;
+};
+
+async function classifyReply(bodyText: string): Promise<ReplyClassification | null> {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) return null;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-5",
+      max_tokens: 512,
+      tools: [CLASSIFY_TOOL],
+      tool_choice: { type: "tool", name: CLASSIFY_TOOL.name },
+      messages: [
+        {
+          role: "user",
+          content: `Classify this reply to a UK parking/traffic penalty notice appeal:\n\n${bodyText.slice(0, 8000)}`,
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    console.error(`Claude reply classification failed: ${res.status} ${await res.text()}`);
+    return null;
+  }
+
+  const json = await res.json();
+  const toolUse = (json.content ?? []).find((b: { type: string }) => b.type === "tool_use");
+  if (!toolUse) return null;
+  return toolUse.input as ReplyClassification;
+}
+
+async function sendEvidenceRequestedEmail(apiKey: string, to: string, issuerName: string | null) {
+  const issuer = issuerName ?? "The issuer";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: FROM_EMAIL,
+      to,
+      subject: `Planal — ${issuer} asked for evidence on your appeal`,
+      text: `${issuer} replied to your appeal asking for evidence before they decide. Log in to Planal to see what they need and send it — nothing goes out until you approve it.`,
+    }),
+  });
+  if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
+}
+
+async function sendReplyReceivedEmail(apiKey: string, to: string, issuerName: string | null, summary: string) {
+  const issuer = issuerName ?? "The issuer";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: FROM_EMAIL,
+      to,
+      subject: `Planal — ${issuer} replied to your appeal`,
+      text: `${summary} Log in to Planal to see the reply and update the outcome.`,
+    }),
+  });
+  if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
+}
+
+async function notifyOwnerEmails(
+  supabase: ReturnType<typeof createClient>,
+  ownerType: "individual" | "organisation",
+  ownerId: string
+): Promise<string[]> {
+  if (ownerType === "individual") {
+    const { data } = await supabase.from("users").select("email").eq("id", ownerId).maybeSingle();
+    return data?.email ? [data.email as string] : [];
+  }
+  const { data } = await supabase
+    .from("memberships")
+    .select("users(email)")
+    .eq("organisation_id", ownerId)
+    .eq("role", "admin")
+    .returns<{ users: { email: string | null } }[]>();
+  return (data ?? []).map((m) => m.users?.email).filter((e): e is string => Boolean(e));
+}
+
 // --- New-case notification
 //
 // Without this, "catches it in minutes" (the master plan's whole pitch
@@ -591,7 +773,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: connections, error: connectionsError } = await supabase
     .from("email_connections")
-    .select("id, owner_type, owner_user_id, owner_organisation_id, provider, encrypted_access_token, encrypted_refresh_token, token_expires_at, last_scanned_at, created_by")
+    .select("id, owner_type, owner_user_id, owner_organisation_id, provider, email_address, encrypted_access_token, encrypted_refresh_token, token_expires_at, last_scanned_at, created_by")
     .eq("status", "connected")
     .limit(BATCH_CONNECTIONS_LIMIT);
 
@@ -602,6 +784,8 @@ Deno.serve(async (req: Request) => {
   let scanned = 0;
   let casesCreated = 0;
   let failed = 0;
+  let repliesChecked = 0;
+  let evidenceRequestsCreated = 0;
 
   for (const conn of connections ?? []) {
     try {
@@ -742,6 +926,107 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // --- Evidence-on-request: check replies to this connection's own
+      // already-sent appeals. Only appeals sent via this same provider
+      // have a sent_thread_id at all (portal/post/manual sends never do),
+      // and only this owner's own cases — matched the same way the
+      // new-PCN scan above matches vehicles, since there's no single query
+      // that joins connections to cases through vehicles' two possible
+      // owner columns.
+      const { data: openAppeals } = await supabase
+        .from("appeals")
+        .select(
+          "id, case_id, sent_thread_id, last_reply_message_id, cases!inner(id, status, issuer_name, vehicles!inner(owner_type, owner_user_id, owner_organisation_id))"
+        )
+        .eq("send_method", conn.provider)
+        .not("sent_thread_id", "is", null);
+
+      type OpenAppealRow = {
+        id: string;
+        case_id: string;
+        sent_thread_id: string;
+        last_reply_message_id: string | null;
+        cases: {
+          id: string;
+          status: string;
+          issuer_name: string | null;
+          vehicles: { owner_type: string; owner_user_id: string | null; owner_organisation_id: string | null };
+        };
+      };
+
+      for (const appealRow of (openAppeals ?? []) as unknown as OpenAppealRow[]) {
+        const vehicleRow = appealRow.cases?.vehicles;
+        if (!vehicleRow || vehicleRow.owner_type !== conn.owner_type) continue;
+        const ownerMatches =
+          conn.owner_type === "individual"
+            ? vehicleRow.owner_user_id === conn.owner_user_id
+            : vehicleRow.owner_organisation_id === conn.owner_organisation_id;
+        if (!ownerMatches) continue;
+        if (["closed", "paid"].includes(appealRow.cases.status)) continue;
+
+        try {
+          const messages =
+            conn.provider === "gmail"
+              ? await fetchGmailThreadMessages(accessToken, appealRow.sent_thread_id)
+              : await fetchOutlookConversationMessages(accessToken, appealRow.sent_thread_id);
+
+          const theirReplies = messages
+            .filter((m) => m.fromEmail && m.fromEmail !== conn.email_address.toLowerCase())
+            .filter((m) => m.id !== appealRow.last_reply_message_id)
+            .sort((a, b) => b.internalDate - a.internalDate);
+
+          const latest = theirReplies[0];
+          if (!latest || !latest.bodyText.trim()) continue;
+
+          const classification = await classifyReply(latest.bodyText);
+          if (!classification) continue;
+
+          await supabase
+            .from("appeals")
+            .update({
+              last_reply_message_id: latest.id,
+              last_reply_kind: classification.kind,
+              last_reply_summary: classification.summary,
+            })
+            .eq("id", appealRow.id);
+
+          const ownerId = conn.owner_type === "individual" ? conn.owner_user_id! : conn.owner_organisation_id!;
+
+          if (classification.kind === "evidence_requested") {
+            await supabase.from("evidence_requests").insert({
+              case_id: appealRow.case_id,
+              due_at: classification.dueDate,
+              message: classification.summary,
+              source_message_id: latest.id,
+            });
+            await supabase.from("cases").update({ status: "evidence_requested" }).eq("id", appealRow.case_id);
+            evidenceRequestsCreated++;
+
+            if (resendKey) {
+              for (const email of await notifyOwnerEmails(supabase, conn.owner_type, ownerId)) {
+                try {
+                  await sendEvidenceRequestedEmail(resendKey, email, appealRow.cases.issuer_name);
+                } catch (err) {
+                  console.error("Failed to send evidence-requested email", err);
+                }
+              }
+            }
+          } else if (resendKey) {
+            for (const email of await notifyOwnerEmails(supabase, conn.owner_type, ownerId)) {
+              try {
+                await sendReplyReceivedEmail(resendKey, email, appealRow.cases.issuer_name, classification.summary);
+              } catch (err) {
+                console.error("Failed to send reply-received email", err);
+              }
+            }
+          }
+
+          repliesChecked++;
+        } catch (err) {
+          console.error(`Reply check failed for appeal ${appealRow.id}`, err);
+        }
+      }
+
       await supabase.from("email_connections").update({ last_scanned_at: new Date().toISOString() }).eq("id", conn.id);
     } catch (err) {
       failed++;
@@ -749,7 +1034,15 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return new Response(JSON.stringify({ connectionsScanned: (connections ?? []).length, messagesScanned: scanned, casesCreated, failed }), {
-    headers: { "Content-Type": "application/json" },
-  });
+  return new Response(
+    JSON.stringify({
+      connectionsScanned: (connections ?? []).length,
+      messagesScanned: scanned,
+      casesCreated,
+      repliesChecked,
+      evidenceRequestsCreated,
+      failed,
+    }),
+    { headers: { "Content-Type": "application/json" } }
+  );
 });

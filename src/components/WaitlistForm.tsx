@@ -165,7 +165,7 @@ export function WaitlistForm() {
         {status === "submitting" ? "Submitting..." : "Join the waitlist"}
       </button>
 
-      <p className="text-xs text-planal-ink-muted">
+      <p className="text-sm text-planal-ink-muted">
         We&apos;ll only use these details to contact you about Planal. See our{" "}
         <a href="/privacy" className="underline hover:text-planal-ink">
           privacy policy

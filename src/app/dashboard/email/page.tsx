@@ -61,7 +61,10 @@ export default async function EmailPage({
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Connected email</h1>
-          <Link href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
+          <Link
+            href="/dashboard"
+            className="rounded text-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
             &larr; Dashboard
           </Link>
         </div>
@@ -72,12 +75,18 @@ export default async function EmailPage({
         </p>
 
         {error && (
-          <p className="mt-4 rounded-md border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300">
+          <p
+            className="mt-4 rounded-md border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300"
+            role="alert"
+          >
             {errorMessage(error, provider)}
           </p>
         )}
         {connected && (
-          <p className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300">
+          <p
+            className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300"
+            role="status"
+          >
             Mailbox connected.
           </p>
         )}
@@ -86,13 +95,13 @@ export default async function EmailPage({
           <div className="mt-6 flex gap-3">
             <a
               href="/api/email/google/connect"
-              className="inline-block rounded-md bg-emerald-500 px-4 py-2.5 font-semibold text-emerald-950 transition-colors hover:bg-emerald-400"
+              className="inline-flex min-h-11 items-center rounded-md bg-emerald-500 px-4 py-2.5 font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             >
               Connect Gmail
             </a>
             <a
               href="/api/email/microsoft/connect"
-              className="inline-block rounded-md border border-white/10 px-4 py-2.5 font-semibold text-white transition-colors hover:bg-white/5"
+              className="inline-flex min-h-11 items-center rounded-md border border-white/10 px-4 py-2.5 font-semibold text-white transition-colors hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             >
               Connect Outlook
             </a>
@@ -100,7 +109,7 @@ export default async function EmailPage({
         )}
 
         {(!isGoogleOAuthConfigured() || !isMicrosoftOAuthConfigured()) && (
-          <p className="mt-3 text-xs text-zinc-500">
+          <p className="mt-3 text-sm text-zinc-500">
             {!isGoogleOAuthConfigured() && !isMicrosoftOAuthConfigured()
               ? "Neither connection is live yet — both are waiting on OAuth credentials."
               : !isGoogleOAuthConfigured()
@@ -123,11 +132,11 @@ export default async function EmailPage({
                   <div>
                     <p className="font-medium">
                       {c.email_address}{" "}
-                      <span className="text-xs font-normal text-zinc-500">
+                      <span className="text-sm font-normal text-zinc-500">
                         ({PROVIDER_LABEL[c.provider] ?? c.provider})
                       </span>
                     </p>
-                    <p className="mt-0.5 text-xs text-zinc-500 capitalize">
+                    <p className="mt-0.5 text-sm text-zinc-500 capitalize">
                       {c.status} · connected {new Date(c.connected_at).toLocaleDateString("en-GB")}
                     </p>
                   </div>

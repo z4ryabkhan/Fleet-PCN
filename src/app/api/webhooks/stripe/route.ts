@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { getStripeClient } from "@/lib/stripe";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { confirmIndividualCaseAuthorization } from "@/lib/billing";
 
 // Source of truth for payment/subscription confirmation, per Stripe's own
 // guidance — never trust the Checkout success redirect alone. Signature
@@ -46,11 +47,20 @@ export async function POST(request: Request) {
             subscription_status: "active",
           })
           .eq("stripe_customer_id", session.customer as string);
-      } else if (session.mode === "payment" && session.metadata?.plana_charge_type === "individual_per_case") {
-        await supabase
-          .from("case_charges")
-          .update({ status: "paid" })
-          .eq("stripe_checkout_session_id", session.id);
+      } else if (session.mode === "setup" && session.metadata?.plana_charge_type === "individual_per_case") {
+        // No-win-no-fee (2026-09-24): this session only saves a card — the
+        // event payload carries setup_intent as a bare ID, so it's fetched
+        // separately to read the payment method it produced.
+        const setupIntentId =
+          typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent?.id;
+        if (setupIntentId) {
+          const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+          const paymentMethodId =
+            typeof setupIntent.payment_method === "string" ? setupIntent.payment_method : null;
+          if (paymentMethodId) {
+            await confirmIndividualCaseAuthorization(supabase, session.id, paymentMethodId, setupIntent.id);
+          }
+        }
       }
       break;
     }

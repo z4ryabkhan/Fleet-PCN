@@ -30,7 +30,10 @@ export default async function BillingPage({
             Individual accounts pay per case, right from the case page — there&apos;s no
             subscription to manage here.
           </p>
-          <Link href="/dashboard" className="mt-6 inline-block text-sm text-zinc-400 hover:text-white">
+          <Link
+            href="/dashboard"
+            className="mt-6 inline-block rounded text-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
             &larr; Dashboard
           </Link>
         </div>
@@ -55,18 +58,27 @@ export default async function BillingPage({
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Billing</h1>
-          <Link href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
+          <Link
+            href="/dashboard"
+            className="rounded text-sm text-zinc-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
             &larr; Dashboard
           </Link>
         </div>
 
         {subscribed && (
-          <p className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300">
+          <p
+            className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300"
+            role="status"
+          >
             Subscription active.
           </p>
         )}
         {cancelled && (
-          <p className="mt-4 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-zinc-300">
+          <p
+            className="mt-4 rounded-md border border-white/10 bg-white/5 p-3 text-sm text-zinc-300"
+            role="status"
+          >
             Checkout cancelled — no charge was made.
           </p>
         )}
@@ -96,7 +108,7 @@ export default async function BillingPage({
           )}
         </div>
 
-        <p className="mt-4 text-xs text-zinc-500">
+        <p className="mt-4 text-sm text-zinc-500">
           These are starting prices we&apos;re still validating with real fleet conversations —
           not locked in.
         </p>
