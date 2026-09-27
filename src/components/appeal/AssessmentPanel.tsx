@@ -365,11 +365,29 @@ export function AssessmentPanel({
         <>
           <div className="mt-6 rounded-xl border border-planal-amber-text/20 bg-planal-amber-bg p-4 text-sm text-planal-amber-text">
             {issuerMatch.appeal_channel === "portal" ? (
-              <>This issuer only accepts appeals through their own portal — email won&apos;t reach them.</>
+              <>This issuer&apos;s formal appeal process is through their own portal, not email.</>
             ) : (
-              <>This issuer only accepts appeals by post. Use the PDF pack below instead of emailing.</>
+              <>This issuer&apos;s formal appeal process is by post. Use the PDF pack below instead of emailing.</>
             )}
           </div>
+
+          {/* 2026-09: many operators also run a general enquiries inbox
+              that gets forwarded internally, even where their formal
+              process is portal/post-only — but we've only verified the
+              channel in the issuer directory, never a specific "general"
+              address, so this stays a self-serve tip rather than an
+              address Planal sends to or bills for. Flip an issuer's
+              appeal_channel to 'email' (unlocking the paid send flow)
+              only once its own appeal guidance is checked and confirms
+              email is an accepted route — never from a generic inbox
+              existing. */}
+          <p className="mt-3 text-sm text-planal-ink-muted">
+            Some operators also read a general enquiries email, even when their formal appeal process is
+            {issuerMatch.appeal_channel === "portal" ? " a portal" : " post"}. If you find one on the notice or
+            their website, it&apos;s worth sending this letter there too as a backup — but it doesn&apos;t replace
+            the {issuerMatch.appeal_channel === "portal" ? "portal submission" : "posted copy"} below, since we
+            haven&apos;t confirmed email counts as a formal appeal for this issuer.
+          </p>
 
           {issuerMatch.appeal_channel === "portal" && issuerMatch.portal_url && (
             <a
